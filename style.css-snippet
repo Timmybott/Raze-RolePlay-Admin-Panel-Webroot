@@ -1,0 +1,189 @@
+
+/* --- NEW MODERN PLAYER LIST --- */
+
+/* Tabs */
+.tabs-container {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 5px;
+    border-radius: 8px;
+    width: fit-content;
+}
+
+.btn-tab {
+    background: transparent;
+    border: none;
+    color: #888;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-tab:hover {
+    color: #ddd;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.btn-tab.active {
+    background: linear-gradient(135deg, #ff4e00, #ff8c00); 
+    /* Using gradient based on accent color */
+    color: white;
+    box-shadow: 0 4px 15px rgba(255, 78, 0, 0.3);
+    font-weight: 600;
+}
+
+/* Toolbar & Search */
+.list-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.search-wrapper {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+
+.search-icon {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #666;
+    pointer-events: none;
+}
+
+.search-input {
+    width: 100%;
+    padding: 12px 12px 12px 45px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: white;
+    font-size: 0.95rem;
+    transition: all 0.3s;
+}
+
+.search-input:focus {
+    background: rgba(0, 0, 0, 0.5);
+    border-color: #ff4e00;
+    box-shadow: 0 0 0 2px rgba(255, 78, 0, 0.2);
+    outline: none;
+}
+
+.btn-load-players {
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #ff4e00, #ff8c00);
+    border: none;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-load-players:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(255, 78, 0, 0.4);
+}
+
+/* Table Styling */
+.table-responsive {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.player-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: rgba(30, 30, 35, 0.4);
+}
+
+.player-table thead {
+    background: rgba(0, 0, 0, 0.4);
+    border-bottom: 2px solid rgba(255, 255, 255, 0.05);
+}
+
+.player-table th {
+    padding: 15px 20px;
+    text-align: left;
+    color: #aaa;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.player-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: background 0.2s;
+}
+
+.player-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.player-table td {
+    padding: 15px 20px;
+    color: #ddd;
+    vertical-align: middle;
+}
+
+.player-name-cell {
+    font-weight: 600;
+    color: #fff;
+    font-size: 1rem;
+}
+
+.player-id-sub {
+    font-size: 0.8rem;
+    color: #666;
+    font-family: monospace;
+    background: rgba(0,0,0,0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-top: 4px;
+    display: inline-block;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px !important;
+    color: #666;
+    font-style: italic;
+}
+
+.small-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: #ccc;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.85rem;
+}
+
+.small-btn:hover {
+    background: #ff4e00;
+    color: white;
+}

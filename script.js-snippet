@@ -1,0 +1,35 @@
+
+// Player Tab Switching
+function switchPlayerTab(tab) {
+    const btnOnline = document.getElementById('btn-tab-online');
+    const btnAll = document.getElementById('btn-tab-all');
+    const tabOnline = document.getElementById('tab-online');
+    const tabAll = document.getElementById('tab-all');
+
+    if (tab === 'online') {
+        btnOnline.classList.add('active');
+        btnAll.classList.remove('active');
+        tabOnline.classList.remove('hidden');
+        tabAll.classList.add('hidden');
+    } else {
+        btnAll.classList.add('active');
+        btnOnline.classList.remove('active');
+        tabAll.classList.remove('hidden');
+        tabOnline.classList.add('hidden');
+    }
+}
+
+async function loadAllPlayers() {
+    const list = document.getElementById('all-player-list-body');
+    list.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px;">Lade Daten...</td></tr>';
+    
+    // Placeholder for backend fetch
+    // Real implementation would be: 
+    // const res = await fetchWithAuth('/api/fivem/allplayers');
+    // const data = await res.json();
+    
+    // Simulate delay
+    setTimeout(() => {
+        list.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px; color:#ffaa00;">Backend API für "Alle Spieler" ist noch nicht implementiert (Code unverändert Constraint).</td></tr>';
+    }, 500);
+}

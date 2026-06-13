@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raze Admin - Control Panel</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <link rel="icon" type="image/png" href="https://razerp.spcfy.eu/assets/RazeRoleplayPBTransparent.png">
+</head>
+
+<body>
+    <!-- Login Overlay -->
+    <div id="login-overlay" class="login-overlay">
+        <div class="login-box card">
+            <div style="text-align:center; margin-bottom:20px;">
+                <img src="https://razerp.spcfy.eu/assets/RazeRoleplayPBTransparent.png" alt="Logo" style="width:80px;">
+                <h2>Raze Admin</h2>
+            </div>
+            <form id="login-form" method="post">
+                <div class="form-group">
+                    <label>Benutzername</label>
+                    <input type="text" id="login-username" name="username" autocomplete="username" required>
+                </div>
+                <div class="form-group">
+                    <label>Passwort</label>
+                    <input type="password" id="login-password" name="password" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="save-btn"
+                    style="width:100%; justify-content:center; margin-top:20px;">Einloggen</button>
+            </form>
+            <p id="login-error" style="color: #ff4444; margin-top: 15px; text-align:center; display: none;"></p>
+        </div>
+    </div>
+    <div class="background-glow"></div>
+    <div class="noise-overlay"></div>
+
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="https://razerp.spcfy.eu/assets/RazeRoleplayPBTransparent.png" alt="Raze Logo"
+                    class="logo shine-effect">
+                <div class="logo-text">
+                    <h2>Raze Admin</h2>
+                    <span>Control Panel</span>
+                </div>
+            </div>
+
+            <nav>
+                <div class="nav-category">Hauptmenü</div>
+                <ul>
+                    <li class="nav-item active" data-section="dashboard" data-permission="view_dashboard">
+                        <i class="fas fa-home"></i> <span>Dashboard</span>
+                    </li>
+                </ul>
+
+                <div class="nav-category">Konfiguration</div>
+                <ul class="dropdown-menu">
+                    <li class="dropdown-header">
+                        <i class="fab fa-discord"></i> <span>Discord Bot</span>
+                        <i class="fas fa-chevron-down arrow"></i>
+                    </li>
+                    <ul class="dropdown-content">
+                        <li class="nav-item" data-section="general" data-permission="manage_general">
+                            <i class="fas fa-cogs"></i> <span>Allgemein</span>
+                        </li>
+                        <li class="nav-item" data-section="channels" data-permission="manage_channels">
+                            <i class="fas fa-hashtag"></i> <span>Kanäle</span>
+                        </li>
+                        <li class="nav-item" data-section="roles" data-permission="manage_roles">
+                            <i class="fas fa-user-shield"></i> <span>Rollen & Sync</span>
+                        </li>
+                        <li class="nav-item" data-section="tickets" data-permission="manage_tickets">
+                            <i class="fas fa-ticket-alt"></i> <span>Ticket System</span>
+                        </li>
+                        <li class="nav-item" data-section="reactions" data-permission="manage_reactions">
+                            <i class="fas fa-thumbs-up"></i> <span>Reaktionen</span>
+                        </li>
+                    </ul>
+                </ul>
+
+                <ul class="dropdown-menu">
+                    <li class="dropdown-header">
+                        <i class="fas fa-server"></i> <span>FiveM Server</span>
+                        <i class="fas fa-chevron-down arrow"></i>
+                    </li>
+                    <ul class="dropdown-content">
+                        <li class="nav-item" data-section="fivem-general" data-permission="manage_fivem_settings">
+                            <i class="fas fa-sliders-h"></i> <span>Einstellungen</span>
+                        </li>
+                        <li class="nav-item" data-section="players" data-permission="view_players"
+                            data-permission-write="manage_players">
+                            <i class="fas fa-users"></i> <span>Spieler Liste</span>
+                        </li>
+                        <li class="nav-item" data-section="fivem-map" data-permission="view_map">
+                            <i class="fas fa-map-marked-alt"></i> <span>Live Karte</span>
+                        </li>
+                    </ul>
+                </ul>
+
+                <ul class="dropdown-menu">
+                    <li class="dropdown-header">
+                        <i class="fas fa-terminal"></i> <span>Rcon</span>
+                        <i class="fas fa-chevron-down arrow"></i>
+                    </li>
+                    <ul class="dropdown-content">
+                        <li class="nav-item" data-section="fivem-console" data-permission="rcon_read"
+                            data-permission-write="rcon_write">
+                            <i class="fas fa-desktop"></i> <span>FiveM Konsole</span>
+                        </li>
+                    </ul>
+                </ul>
+
+                <div class="nav-category" data-permission="manage_admins">System</div>
+                <ul data-permission="manage_admins">
+                    <li class="nav-item" data-section="admins" data-permission="manage_admins">
+                        <i class="fas fa-users-cog"></i> <span>Accounts</span>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="status-box">
+                    <div id="sidebar-status-indicator" class="status-indicator pulse"></div>
+                    <div class="status-text">
+                        <span class="status-label">Game Server Status</span>
+                        <span id="sidebar-status-value" class="status-value">Verbinde...</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="content">
+            <header>
+                <div class="header-left">
+                    <h1 id="page-title">Dashboard</h1>
+                    <p id="page-subtitle">Willkommen zurück, Administrator</p>
+                </div>
+                <div class="header-right">
+                    <div class="user-profile" onclick="toggleUserMenu()">
+                        <div class="avatar-circle" id="user-avatar">A</div>
+                        <div id="user-menu" class="user-menu hidden">
+                            <div class="menu-item" onclick="logout()">
+                                <i class="fas fa-sign-out-alt"></i> Abmelden
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Loading Spinner -->
+            <div id="loading" class="loading-overlay">
+                <div class="spinner-container">
+                    <div class="spinner"></div>
+                    <img src="https://razerp.spcfy.eu/assets/RazeRoleplayPBTransparent.png" alt="Logo"
+                        class="spinner-logo">
+                </div>
+                <p>Lade Konfiguration...</p>
+            </div>
+
+            <form id="config-form">
+
+                <!-- Dashboard Welcome Section -->
+                <div id="section-dashboard" class="config-section active fade-in">
+                    <div class="welcome-banner">
+                        <div class="banner-content">
+                            <h2>Raze Roleplay Administration</h2>
+                            <p>Verwalte deinen Discord Bot und Server-Einstellungen zentral an einem Ort.</p>
+                        </div>
+                        <img src="https://razerp.spcfy.eu/assets/RazeRoleplayPBTransparent.png" alt="Raze Banner"
+                            class="banner-img">
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-robot"></i></div>
+                            <div class="stat-info">
+                                <h3>Bot</h3>
+                                <p>Aktiv</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-plug"></i></div>
+                            <div class="stat-info">
+                                <h3>Port</h3>
+                                <p id="display-port">Token ...</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon"><i class="fas fa-database"></i></div>
+                            <div class="stat-info">
+                                <h3>Config</h3>
+                                <p>Geladen</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Server Status -->
+                    <div id="live-server-status-card" class="card full-width" style="margin-top: 25px;">
+                        <div class="card-header">
+                            <i class="fas fa-server"></i> Live Server Status
+                            <span id="server-status-badge" class="badge"
+                                style="background:#ff4444; color:white;">Offline</span>
+                        </div>
+                        <div class="server-stats-row" style="display: flex; gap: 30px; margin-bottom: 20px;">
+                            <div>
+                                <span style="color:#888; font-size:0.8rem;">Spieler Online</span>
+                                <div id="live-player-count" style="font-size:1.5rem; font-weight:bold;">0 / 0</div>
+                            </div>
+                            <div>
+                                <span style="color:#888; font-size:0.8rem;">Ping (Avg)</span>
+                                <div id="live-ping-avg" style="font-size:1.5rem; font-weight:bold;">- ms</div>
+                            </div>
+                        </div>
+
+                        <h4 style="margin-bottom:10px; font-size:0.9rem; color:#888;">Spielerliste</h4>
+                        <div id="player-list-container" class="dashboard-player-list">
+                            <!-- Player Rows injected by JS -->
+                            <div style="text-align:center; color:#555; padding: 20px;">Warte auf Daten...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- General Section -->
+                <div id="section-general" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Bot Identität</h3>
+                        <p>Grundlegende Einstellungen für den Bot.</p>
+                    </div>
+
+                    <div class="card-grid">
+                        <div class="card">
+                            <div class="card-header"><i class="fas fa-key"></i> Autorisation</div>
+                            <div class="form-group">
+                                <label>Bot Token</label>
+                                <div class="input-wrapper">
+                                    <input type="password" name="TOKEN" id="TOKEN" placeholder="Discord Bot Token">
+                                    <i class="fas fa-eye-slash toggle-password"></i>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Guild ID (Server ID)</label>
+                                <input type="number" name="GUILD_ID" id="GUILD_ID">
+                                <small class="text-muted">Wird benötigt, um Kanäle/Rollen zu laden.</small>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header"><i class="fas fa-palette"></i> Branding</div>
+                            <div class="form-group">
+                                <label>Akzent Farbe</label>
+                                <div class="color-picker-wrapper">
+                                    <div class="color-preview-box" id="color-preview-box"></div>
+                                    <input type="number" name="ACCENT_COLOR" id="ACCENT_COLOR"
+                                        class="color-input-number">
+                                    <input type="color" id="color-preview">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Server Logo URL</label>
+                                <input type="url" name="SERVER_LOGO_URL" id="SERVER_LOGO_URL">
+                            </div>
+                        </div>
+
+                        <div class="card full-width">
+                            <div class="card-header"><i class="fas fa-network-wired"></i> Verbindungen & Web</div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Discord Invite Link</label>
+                                    <input type="url" name="DISCORD_INVITE_LINK" id="DISCORD_INVITE_LINK">
+                                </div>
+                                <div class="form-group">
+                                    <label>Web Panel Port (Neustart erforderlich)</label>
+                                    <input type="number" name="WEB_PORT" id="WEB_PORT" placeholder="8080">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Target User ID (Status Sync)</label>
+                                <input type="number" name="TARGET_USER_ID" id="TARGET_USER_ID">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Channels Section -->
+                <div id="section-channels" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Kanal Management</h3>
+                        <p>IDs der wichtigsten Server-Kanäle.</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header"><i class="fas fa-bullhorn"></i> Wichtige Kanäle</div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Member Count Channel</label>
+                                <select name="CHANNEL_ID" id="CHANNEL_ID" class="dynamic-select"
+                                    data-type="channel"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Kanal Name Format</label>
+                                <input type="text" name="CHANNEL_NAME_FORMAT" id="CHANNEL_NAME_FORMAT">
+                            </div>
+                            <div class="form-group">
+                                <label>Verify Channel</label>
+                                <select name="VERIFY_CHANNEL_ID" id="VERIFY_CHANNEL_ID" class="dynamic-select"
+                                    data-type="channel"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Welcome Channel</label>
+                                <select name="WELCOME_CHANNEL_ID" id="WELCOME_CHANNEL_ID" class="dynamic-select"
+                                    data-type="channel"></select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header"><i class="fas fa-filter"></i> Spezial-Kanäle & Filter</div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Nur Bilder erlaubt</label>
+                                <select name="IMAGE_ONLY_CHANNEL_ID" id="IMAGE_ONLY_CHANNEL_ID" class="dynamic-select"
+                                    data-type="channel"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Nur Videos erlaubt</label>
+                                <select name="VIDEO_ONLY_CHANNEL_ID" id="VIDEO_ONLY_CHANNEL_ID" class="dynamic-select"
+                                    data-type="channel"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Feedback Kanal</label>
+                                <select name="FEEDBACK_CHANNEL_ID" id="FEEDBACK_CHANNEL_ID" class="dynamic-select"
+                                    data-type="channel"></select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header"><i class="fas fa-couch"></i> Warteräume</div>
+                        <div class="form-group">
+                            <label>Waiting Rooms</label>
+                            <div id="waiting-rooms-builder" class="tag-builder">
+                                <!-- JS will populate tags here -->
+                            </div>
+                            <select id="waiting-rooms-select" class="dynamic-select" data-type="channel">
+                                <option value="">+ Kanal hinzufügen</option>
+                            </select>
+                            <input type="hidden" name="WAITING_ROOMS" id="WAITING_ROOMS">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Roles Section -->
+                <div id="section-roles" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Rollen & Berechtigungen</h3>
+                        <p>Steuere automatische Rollenzuweisungen.</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header"><i class="fas fa-user-check"></i> Verifizierung</div>
+                        <div class="form-group">
+                            <label>Verifizierungs Rolle</label>
+                            <select name="VERIFY_ROLE_ID" id="VERIFY_ROLE_ID" class="dynamic-select"
+                                data-type="role"></select>
+                        </div>
+                    </div>
+
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <i class="fas fa-sync-alt"></i> Rollen Synchronisierung
+                        </div>
+                        <div id="role-sync-builder" class="list-builder">
+                            <!-- Dynamic Rows for Role Sync -->
+                        </div>
+                        <button type="button" class="add-btn" onclick="addRoleSyncRow()">+ Neue Sync-Regel</button>
+                        <textarea name="ROLE_SYNC_MAPPING" id="ROLE_SYNC_MAPPING" style="display:none;"></textarea>
+                    </div>
+                </div>
+
+                <!-- Tickets Section -->
+                <div id="section-tickets" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Support System</h3>
+                        <p>Konfiguration des Ticket-Tools.</p>
+                    </div>
+
+                    <div class="card-grid">
+                        <div class="card">
+                            <div class="card-header"><i class="fas fa-sitemap"></i> Struktur</div>
+                            <div class="form-group">
+                                <label>Ticket Message Channel</label>
+                                <select name="TICKET_CHANNEL_ID" id="TICKET_CHANNEL_ID" class="dynamic-select"
+                                    data-type="channel"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Kategorie: Offen</label>
+                                <select name="TICKET_CATEGORY_OPEN" id="TICKET_CATEGORY_OPEN" class="dynamic-select"
+                                    data-type="category"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Kategorie: Geschlossen</label>
+                                <select name="TICKET_CATEGORY_CLOSED" id="TICKET_CATEGORY_CLOSED" class="dynamic-select"
+                                    data-type="category"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Log Channel</label>
+                                <select name="TICKET_LOG_CHANNEL_ID" id="TICKET_LOG_CHANNEL_ID" class="dynamic-select"
+                                    data-type="channel"></select>
+                            </div>
+                        </div>
+
+                        <div class="card full-width">
+                            <div class="card-header"><i class="fas fa-list-alt"></i> Ticket Typen</div>
+                            <div id="ticket-types-builder" class="list-builder"></div>
+                            <button type="button" class="add-btn" onclick="addTicketTypeRow()">+ Neuer
+                                Ticket-Typ</button>
+                            <textarea name="TICKET_TYPES" id="TICKET_TYPES" style="display:none;"></textarea>
+                        </div>
+
+                        <div class="card full-width">
+                            <div class="card-header"><i class="fas fa-user-shield"></i> Permanente Admins</div>
+                            <p class="description-text">Diese Rollen/User können auch in geschlossene Tickets einsehen.
+                            </p>
+                            <div id="ticket-admins-builder" class="tag-builder"></div>
+                            <div class="input-group">
+                                <select id="ticket-admin-select" class="dynamic-select" data-type="user_or_role">
+                                    <!-- Users/Roles combo -->
+                                </select>
+                                <button type="button" class="small-btn" onclick="addTicketAdmin()">Add</button>
+                            </div>
+                            <textarea name="TICKET_PERMANENT_ADMINS" id="TICKET_PERMANENT_ADMINS"
+                                style="display:none;"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reactions Section -->
+                <div id="section-reactions" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Auto-Reaktionen</h3>
+                        <p>Automatische Emojis unter Nachrichten.</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header"><i class="fas fa-thumbs-up"></i> Daumen Hoch Kanäle</div>
+                        <div class="form-group">
+                            <div id="thumbs-up-builder" class="tag-builder"></div>
+                            <select id="thumbs-up-select" class="dynamic-select" data-type="channel">
+                                <option value="">+ Kanal hinzufügen</option>
+                            </select>
+                            <input type="hidden" name="THUMBS_UP_CHANNELS" id="THUMBS_UP_CHANNELS">
+                        </div>
+                    </div>
+
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <i class="fas fa-vote-yea"></i> Custom Vote Kanäle
+                        </div>
+                        <div id="vote-channels-builder" class="list-builder"></div>
+                        <button type="button" class="add-btn" onclick="addVoteChannelRow()">+ Kanal hinzufügen</button>
+                        <textarea name="VOTE_CHANNELS" id="VOTE_CHANNELS" style="display:none;"></textarea>
+                    </div>
+                </div>
+
+                <!-- FiveM General Section -->
+                <div id="section-fivem-general" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>FiveM Server</h3>
+                        <p>Verwalte Whitelist, Banlist und Verbindungs-Einstellungen.</p>
+                    </div>
+
+                    <div class="card-grid">
+                        <!-- Status / Toggles -->
+                        <div class="card">
+                            <div class="card-header"><i class="fas fa-power-off"></i> Status</div>
+                            <div class="form-group-small" style="margin-top:10px;">
+                                <label style="display:flex; align-items:center; gap:10px;">
+                                    <span>Whitelist Aktivieren</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="FIVEM_WHITELIST_ENABLED"
+                                            name="FIVEM_WHITELIST_ENABLED" value="true">
+                                        <span class="slider round"></span>
+                                    </label>
+                                </label>
+                            </div>
+
+                            <div class="form-group-small">
+                                <label style="display:flex; align-items:center; gap:10px;">
+                                    <span>Banlist Aktivieren</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="FIVEM_BANLIST_ENABLED" name="FIVEM_BANLIST_ENABLED"
+                                            value="true">
+                                        <span class="slider round"></span>
+                                    </label>
+                                </label>
+                            </div>
+
+                            <div style="border-top:1px solid rgba(255,255,255,0.1); margin: 15px 0;"></div>
+
+                            <div class="form-group-small">
+                                <label style="display:flex; align-items:center; gap:10px;">
+                                    <span>Discord-Rollen Whitelist</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="FIVEM_WHITELIST_ROLE_ENABLED"
+                                            name="FIVEM_WHITELIST_ROLE_ENABLED" value="true">
+                                        <span class="slider round"></span>
+                                    </label>
+                                </label>
+                            </div>
+
+                            <div class="form-group-small">
+                                <label>Discord Rolle für Whitelist</label>
+                                <select id="FIVEM_WHITELIST_ROLE_ID" name="FIVEM_WHITELIST_ROLE_ID"
+                                    class="select-input dynamic-select" data-type="role">
+                                    <option value="">Rolle wählen...</option>
+                                </select>
+                                <small style="color:#888; font-size:0.8rem;">Spieler mit dieser Rolle kommen automatisch
+                                    auf den Server (wenn Whitelist aktiv).</small>
+                            </div>
+                        </div>
+
+                        <!-- API Sicherheit -->
+                        <div class="card">
+                            <div class="card-header"><i class="fas fa-shield-alt"></i> API Sicherheit</div>
+                            <div class="form-group">
+                                <label>FiveM API Key</label>
+                                <input type="text" name="FIVEM_API_KEY" id="FIVEM_API_KEY"
+                                    placeholder="Geheimer Schlüssel">
+                                <small class="text-muted">Schützt die Schnittstelle zwischen Spielserver und Panel
+                                    (Status, Befehle, Konsole). Muss exakt mit <b>API_KEY</b> in
+                                    <code>raze_adminpanel/server.lua</code> übereinstimmen.</small>
+                            </div>
+                        </div>
+
+                        <!-- Messages -->
+                        <div class="card">
+                            <div class="card-header"><i class="fas fa-comment-alt"></i> Nachrichten</div>
+                            <div class="form-group">
+                                <label>Whitelist Nachricht</label>
+                                <textarea name="FIVEM_WHITELIST_MESSAGE" id="FIVEM_WHITELIST_MESSAGE" rows="3"
+                                    placeholder="Du stehst nicht auf der Whitelist."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Ban Nachricht</label>
+                                <textarea name="FIVEM_BANLIST_MESSAGE" id="FIVEM_BANLIST_MESSAGE" rows="3"
+                                    placeholder="Du wurdest gebannt."></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Whitelist Management -->
+                        <div class="card full-width">
+                            <div class="card-header"><i class="fas fa-list-ul"></i> Whitelist Management</div>
+                            <p class="description-text">Füge Steam-Hex, License oder Discord IDs hinzu.</p>
+                            <div id="fivem-whitelist-builder" class="tag-builder"></div>
+                            <div class="input-group">
+                                <input type="text" id="fivem-whitelist-input"
+                                    placeholder="Identifier (z.B. steam:11000010a3c2c2d)">
+                                <button type="button" class="small-btn"
+                                    onclick="addFiveMListEntry('whitelist')">Add</button>
+                            </div>
+                            <textarea name="FIVEM_WHITELIST" id="FIVEM_WHITELIST" style="display:none;"></textarea>
+                        </div>
+
+                        <!-- Banlist Management -->
+                        <div class="card full-width">
+                            <div class="card-header"><i class="fas fa-ban"></i> Banlist Management</div>
+                            <p class="description-text">Gesperrte Identifier.</p>
+                            <div id="fivem-banlist-builder" class="tag-builder"></div>
+                            <div class="input-group">
+                                <input type="text" id="fivem-banlist-input" placeholder="Identifier (z.B. license:...)">
+                                <button type="button" class="small-btn"
+                                    onclick="addFiveMListEntry('banlist')">Add</button>
+                            </div>
+                            <textarea name="FIVEM_BANLIST" id="FIVEM_BANLIST" style="display:none;"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Floating Save Button Area -->
+                <div id="save-area" class="save-area hidden">
+                    <button id="save-btn" type="button" class="save-btn">
+                        <i class="fas fa-save"></i> <span>Einstellungen Speichern</span>
+                    </button>
+                </div>
+
+                <!-- NEW: Player List Section -->
+                <div id="section-players" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Spieler Liste</h3>
+                        <p>Live Übersicht aller Spieler auf dem Server.</p>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div class="tabs-container" style="display:flex; gap:10px; margin-bottom:20px;">
+                        <button type="button" class="btn-tab active" id="btn-tab-online"
+                            onclick="switchPlayerTab('online')">Aktuell Online</button>
+                        <button type="button" class="btn-tab" id="btn-tab-all" onclick="switchPlayerTab('all')">Alle
+                            Spieler</button>
+                    </div>
+
+                    <!-- Online Tab -->
+                    <div id="tab-online" class="tab-content-players">
+                        <div class="card full-width">
+                            <!-- Search / Filter could go here -->
+                            <div style="overflow-x: auto;">
+                                <table class="player-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:60px;">ID</th>
+                                            <th>Name / IC Name</th>
+                                            <th>Ping</th>
+                                            <th style="width:100px; text-align:right;">Aktion</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="full-player-list-body">
+                                        <!-- Rows injected by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- All Players Tab -->
+                    <div id="tab-all" class="tab-content-players hidden">
+                        <div class="card full-width">
+                            <div class="list-toolbar">
+                                <div class="search-wrapper">
+                                    <i class="fas fa-search search-icon"></i>
+                                    <input type="text" id="all-player-search" class="search-input"
+                                        placeholder="Suche nach Name, ID, Job...">
+                                </div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="player-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Spieler</th>
+                                            <th>Letzter Login</th>
+                                            <th>Job</th>
+                                            <th style="text-align:right;">Aktion</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="all-player-list-body">
+                                        <tr>
+                                            <td colspan="4" class="empty-state">Klicke auf Laden, um die Datenbank
+                                                abzufragen.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Map Section -->
+                <div id="section-fivem-map" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Live Karte</h3>
+                        <p>Alle Online-Spieler in Echtzeit auf der Karte von Los Santos.</p>
+                    </div>
+
+                    <div class="card full-width">
+                        <div class="list-toolbar livemap-toolbar">
+                            <div class="search-wrapper" style="flex:1; min-width:180px; max-width:280px;">
+                                <i class="fas fa-search search-icon"></i>
+                                <input type="text" id="map-filter-search" class="search-input"
+                                    placeholder="Name / ID suchen...">
+                            </div>
+                            <select id="map-filter-job" class="select-input livemap-filter-select">
+                                <option value="">Alle Jobs</option>
+                            </select>
+                            <span id="map-player-count" class="map-count-badge">
+                                <i class="fas fa-users"></i> 0 / 0
+                            </span>
+                        </div>
+
+                        <div id="livemap"></div>
+                        <small class="text-muted" style="display:block; margin-top:10px;">
+                            <i class="fas fa-info-circle"></i> Über einen Marker hovern für die Vorschau, anklicken zum
+                            Bearbeiten. Positionen aktualisieren sich alle 5 Sekunden.
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Rcon Console Section -->
+                <div id="section-fivem-console" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>FiveM Server Konsole</h3>
+                        <p>Live Server Logs und Befehle ausführen.</p>
+                    </div>
+
+                    <div class="card full-width">
+                        <div class="card-header"><i class="fas fa-terminal"></i> Live Konsole</div>
+                        <div id="console-output"
+                            style="background: #111; color: #0f0; font-family: monospace; height: 500px; padding: 15px; overflow-y: auto; border-radius: 5px; margin-bottom: 15px; border: 1px solid #333;">
+                            <div style="color: #666;">Verbinde mit Konsole...</div>
+                        </div>
+                        <div class="input-group" id="console-input-group">
+                            <input type="text" id="console-input" placeholder="Befehl eingeben..." style="flex:1;">
+                            <button type="button" class="add-btn" onclick="sendConsoleCommand()"
+                                style="width:auto; padding:0 20px;">Senden</button>
+                        </div>
+                        <div id="console-readonly-note" class="console-readonly-note hidden">
+                            <i class="fas fa-eye"></i> Nur-Lese-Zugriff – du kannst die Konsole sehen, aber keine
+                            Befehle senden.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Section -->
+                <div id="section-admins" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Admin Verwaltung</h3>
+                        <p>Accounts und Berechtigungen verwalten.</p>
+                    </div>
+
+                    <div class="card full-width">
+                        <div class="card-header" style="justify-content:space-between;">
+                            <span><i class="fas fa-users"></i> Accounts</span>
+                            <button type="button" class="btn-modern-add" onclick="openAdminModal()">
+                                <i class="fas fa-user-plus"></i> Neuer Account</button>
+                        </div>
+                        <p class="description-text">Jeder Menüpunkt links ist eine eigene Berechtigung. Für Konsole und
+                            Spielerverwaltung kann zwischen <b>Nur Lesen</b> und <b>Lesen &amp; Schreiben</b> gewählt
+                            werden.</p>
+                        <div id="admin-list-container" class="admin-account-list">
+                            <!-- Account cards injected by JS -->
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <!-- ADMIN MODAL -->
+            <div id="admin-modal" class="modal hidden">
+                <div class="modal-content card" style="max-width: 620px;">
+                    <span class="close-modal" onclick="closeAdminModal()">&times;</span>
+                    <div class="modal-header">
+                        <h2 id="admin-modal-title">Admin Account</h2>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Benutzername</label>
+                            <input type="text" id="modal-admin-username" placeholder="Benutzername"
+                                autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>Passwort</label>
+                            <input type="text" id="modal-admin-password"
+                                placeholder="Leer lassen = beibehalten" autocomplete="new-password">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Berechtigungen</label>
+                        <div id="modal-permissions-container" class="permissions-container">
+                            <!-- Dynamic Permissions by JS (aus der Sidebar-Struktur abgeleitet) -->
+                        </div>
+                    </div>
+                    <button type="button" class="save-btn btn-modern-primary" onclick="saveAdminFromModal()"
+                        style="width:100%; justify-content:center;">
+                        <i class="fas fa-save"></i> Account speichern</button>
+                </div>
+            </div>
+
+            <!-- Move Player Modal Outside Form if it was inside? No, it was outside -->
+
+        </main>
+    </div>
+
+    <!-- PLAYER POPUP MODAL -->
+    <div id="player-modal" class="modal hidden">
+        <div class="modal-content card">
+            <span class="close-modal" onclick="closePlayerModal()">&times;</span>
+            <div class="modal-header">
+                <h2 id="modal-player-name">Spieler Name</h2>
+                <span id="modal-player-id" class="badge hidden">ID: 1</span>
+            </div>
+
+            <div id="player-modal-body" class="modal-grid">
+                <!-- Inhalt wird dynamisch von JS gerendert (renderPlayerModal) -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <i class="fas fa-check-circle"></i>
+        <span id="toast-message">Gespeichert!</span>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
