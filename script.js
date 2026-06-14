@@ -1677,7 +1677,7 @@ function updateHeader(sectionId) {
         'fivem-map': ['Live Karte', 'Spieler-Positionen in Echtzeit'],
         'fivem-console': ['FiveM Konsole', 'Live Server Logs & Rcon'],
         'jobs-manage': ['Jobs', 'ESX-Jobs & Mitarbeiter verwalten'],
-        'jobs-create': ['Jobs erstellen', 'ESX-Job-Creator'],
+        'jobs-create': ['Jobs verwalten', 'ESX-Jobs anlegen & bearbeiten'],
         'admins': ['Admin Accounts', 'Verwaltung der Web-Panel Zugänge'],
         'players': ['Spieler Übersicht', 'Live Daten & Historie']
 
@@ -2345,6 +2345,11 @@ function openJobEditor(name) {
             <div class="form-group" style="flex:0 0 auto;">
                 <label>Marker-Farbe</label>
                 <input type="color" id="je-color" value="${escapeHtml(jobColor)}" title="Farbe der 3D-Marker (Lager, Umkleide, …)">
+                <label class="perm-label" style="margin-top:6px; gap:6px;">
+                    <span>Angepasste Marker Farbe (ZSX UI)</span>
+                    <input type="checkbox" id="je-zsx-color" ${extra.use_zsx_color ? 'checked' : ''}
+                        title="Nutzt exports['ZSX_UIV2']:GetColor() für die Marker-Farbe">
+                </label>
             </div>
         </div>
 
@@ -2574,8 +2579,9 @@ function harvestJobEditor() {
     const f5 = {};
     document.querySelectorAll('#je-f5').forEach(cb => { f5[cb.dataset.f5] = cb.checked; });
     const color = document.getElementById('je-color').value || '#ff4e00';
+    const use_zsx_color = document.getElementById('je-zsx-color').checked;
 
-    return { name, label: label || name, grades, extra: { locations, blips, f5, color } };
+    return { name, label: label || name, grades, extra: { locations, blips, f5, color, use_zsx_color } };
 }
 
 async function saveJobFromEditor() {
