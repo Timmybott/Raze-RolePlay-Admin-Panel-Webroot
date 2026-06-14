@@ -1,0 +1,18 @@
+name: Restart Pterodactyl Server
+
+on:
+  push:
+    branches:
+      - main  # Passe den Branch an, falls nötig
+
+jobs:
+  restart-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Restart Request
+        run: |
+          curl -X POST "https://panel.spaceify.eu/api/client/servers/09da5fe8/power" \
+            -H "Authorization: Bearer ${{ secrets.PTERO_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{"signal": "restart"}'

@@ -1049,6 +1049,19 @@ async def start_web_server():
         print(f"FEHLER: Konnte Webserver auf Port {port} nicht starten: {e}")
         print("Möglicherweise ist der Port belegt oder du hast keine Berechtigung.")
 
+def run_web_server_only():
+    """Startet nur das Web-Panel ohne Discord-Verbindung.
+    Wird genutzt, wenn kein/ein ungültiger Token vorliegt, damit das Panel
+    erreichbar bleibt und dort ein gültiger Token eingetragen werden kann."""
+    async def runner():
+        await start_web_server()
+        while True:
+            await asyncio.sleep(3600)
+    try:
+        asyncio.run(runner())
+    except (KeyboardInterrupt, SystemExit):
+        print("Web-Panel beendet.")
+
 # --- VERIFIZIERUNG BUTTON KLASSE ---
 class VerifyView(discord.ui.View):
     def __init__(self):
@@ -1574,7 +1587,7 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-if __name__ == "__main__":
+def main():
     # CLI-Helfer: verschlüsselten Token für config.json erzeugen
     #   python bot.py --encrypt-token            (interaktiv)
     #   python bot.py --encrypt-token <token>    (direkt)
@@ -1590,10 +1603,37 @@ if __name__ == "__main__":
                 print("(Verschlüsselt mit Standardschlüssel - für mehr Schutz RAZE_TOKEN_KEY setzen.)")
             print("\nFüge diesen Wert als \"TOKEN\" in config.json ein:\n")
             print(encrypt_token(plain))
-        sys.exit(0)
+        return
+
+    def token_fehler_hinweis(grund):
+        print("\n" + "=" * 70)
+        print(f"  DISCORD-LOGIN FEHLGESCHLAGEN: {grund}")
+        print("  Der Bot wird NICHT mit Discord verbunden.")
+        print("  Das Web-Panel wird trotzdem gestartet, damit du unter")
+        print("  'Allgemein -> Bot Token' einen gültigen Token eintragen kannst.")
+        print("  Danach den Bot einmal neu starten.")
+        print("=" * 70 + "\n")
 
     token = get_bot_token()
     if not token:
-        print("FEHLER: Kein gültiger Bot-Token konfiguriert (TOKEN in config.json prüfen).")
+        token_fehler_hinweis("Kein Token konfiguriert (TOKEN in config.json leer).")
+        run_web_server_only()
     else:
-        bot.run(token)
+        try:
+            bot.run(token)
+        except discord.errors.LoginFailure:
+            # Ungültiger/abgelaufener Token -> Discord lehnt mit 401 ab
+            token_fehler_hinweis("Der Discord-Bot-Token ist ungültig oder abgelaufen (401 Unauthorized).")
+            run_web_server_only()
+        except discord.errors.PrivilegedIntentsRequired:
+            # Benötigte Intents im Developer Portal nicht aktiviert
+            print("\n" + "=" * 70)
+            print("  FEHLER: Benötigte 'Privileged Gateway Intents' sind nicht aktiviert.")
+            print("  Aktiviere im Discord Developer Portal (Bot -> Privileged Gateway")
+            print("  Intents) 'Server Members Intent' und 'Presence Intent'.")
+            print("  Das Web-Panel wird trotzdem gestartet.")
+            print("=" * 70 + "\n")
+            run_web_server_only()
+
+if __name__ == "__main__":
+    main()
