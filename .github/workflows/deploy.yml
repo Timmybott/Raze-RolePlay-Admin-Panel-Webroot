@@ -1,0 +1,18 @@
+name: Deploy to Pterodactyl
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reinstall Pterodactyl Server
+        run: |
+          curl -X POST \
+            "https://panel.spaceify.eu/api/client/servers/${{ secrets.PTERODACTYL_SERVER_ID }}/reinstall" \
+            -H "Authorization: Bearer ${{ secrets.PTERODACTYL_API_KEY }}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json"
