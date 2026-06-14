@@ -714,33 +714,58 @@ input[type="color"] {
 .small-btn:hover { background: var(--primary-hover); }
 .small-btn:active { transform: scale(0.97); }
 
-/* ===================== Save FAB ===================== */
-.save-area {
+/* ===================== Auto-Save Indikator ===================== */
+.autosave-indicator {
     position: fixed;
     bottom: 24px;
-    right: 32px;
+    right: 28px;
+    z-index: 60;
     display: flex;
-    gap: 14px;
-    z-index: 50;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 18px;
+    border-radius: 30px;
+    font-size: 0.86rem;
+    font-weight: 500;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-soft);
+    color: var(--text-soft);
+    animation: asiPop 0.25s var(--ease);
 }
 
+@keyframes asiPop {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.autosave-indicator .asi-icon { font-size: 0.9rem; }
+
+.autosave-indicator.saving { border-color: rgba(255, 78, 0, 0.4); color: #ffb27a; }
+.autosave-indicator.saving .asi-icon { color: var(--primary); }
+.autosave-indicator.saved { border-color: rgba(33, 208, 122, 0.4); color: var(--ok); }
+.autosave-indicator.saved .asi-icon { color: var(--ok); }
+.autosave-indicator.error { border-color: rgba(255, 84, 104, 0.45); color: var(--danger); }
+.autosave-indicator.error .asi-icon { color: var(--danger); }
+
+/* Login-Button nutzt weiterhin die save-btn-Optik */
 .save-btn {
     background: var(--primary);
     color: #fff;
     border: none;
-    padding: 14px 30px;
+    padding: 13px 28px;
     border-radius: var(--radius-sm);
     font-weight: 600;
-    font-size: 0.98rem;
+    font-size: 0.96rem;
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 10px;
-    box-shadow: 0 10px 30px rgba(255, 78, 0, 0.35);
+    box-shadow: 0 8px 22px rgba(255, 78, 0, 0.3);
     transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
 }
 
-.save-btn:hover { background: var(--primary-hover); transform: translateY(-3px); box-shadow: 0 14px 36px rgba(255, 78, 0, 0.45); }
+.save-btn:hover { background: var(--primary-hover); transform: translateY(-2px); }
 .save-btn:active { transform: translateY(0); }
 
 /* ===================== Buttons ===================== */

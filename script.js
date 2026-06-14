@@ -10,8 +10,6 @@ const DATA_URL = '/api/data';
 
 const loadingOverlay = document.getElementById('loading');
 
-const saveBtn = document.getElementById('save-btn');
-
 const toast = document.getElementById('toast');
 
 const pageTitle = document.getElementById('page-title');
@@ -87,10 +85,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupPasswordToggle();
 
     setupBuilders(); // Add listeners for "Add" buttons
-
-
-
-    saveBtn.addEventListener('click', saveConfig);
 
 
 
@@ -320,6 +314,10 @@ async function loadInitialData() {
 
     showLoading(true);
 
+    suppressAutoSave = true; // kein Auto-Save während Laden/Befüllen
+
+    if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
+
     try {
 
         // Parallel fetch (mit Auth-Token; FiveM-Config & Guild-Daten sind optional)
@@ -440,7 +438,9 @@ function initializeUI() {
 
     hasUnsavedChanges = false;
 
-    updateSaveButtonVisibility();
+    // Befüllen ist abgeschlossen -> Auto-Save ab jetzt erlauben
+
+    suppressAutoSave = false;
 
 }
 
@@ -460,25 +460,9 @@ function setupChangeListeners() {
 
         // Exclude some if needed, but generally correct
 
-        input.addEventListener('change', () => {
+        input.addEventListener('change', markDirty);
 
-            hasUnsavedChanges = true;
-
-            updateSaveButtonVisibility();
-
-        });
-
-        input.addEventListener('input', () => {
-
-            // For text inputs, maybe wait for change or blur? usually input is fine if debounced,
-
-            // but user wants "when edited". Instant feedback is good.
-
-            hasUnsavedChanges = true;
-
-            updateSaveButtonVisibility();
-
-        });
+        input.addEventListener('input', markDirty);
 
     });
 
@@ -492,35 +476,115 @@ function setupChangeListeners() {
 
 
 
-function updateSaveButtonVisibility() {
+// Wird durch Auto-Save ersetzt; Funktion bleibt als No-Op erhalten, damit
+// bestehende Aufrufe (Navigation, Init) harmlos sind.
+function updateSaveButtonVisibility() {}
 
-    const activeNav = document.querySelector('.nav-item.active');
+// --- AUTO-SAVE ---
 
-    if (!activeNav) return;
+let autoSaveTimer = null;
 
-
-
-    const section = activeNav.dataset.section;
-
-    const saveArea = document.getElementById('save-area');
+let suppressAutoSave = true; // während des initialen Ladens/Befüllens kein Auto-Save
 
 
 
-    // Forbidden sections where save button should NEVER show
+// Wird bei jeder Änderung aufgerufen: markiert ungespeicherte Änderungen und plant das Speichern
 
-    const forbidden = ['dashboard', 'players', 'admins', 'fivem-console', 'fivem-map'];
+function markDirty() {
+
+    hasUnsavedChanges = true;
+
+    scheduleAutoSave();
+
+}
 
 
 
-    if (hasUnsavedChanges && !forbidden.includes(section)) {
+function scheduleAutoSave() {
 
-        saveArea.classList.remove('hidden');
+    if (suppressAutoSave) return;
 
-    } else {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
 
-        saveArea.classList.add('hidden');
+    autoSaveTimer = setTimeout(() => {
+
+        autoSaveTimer = null;
+
+        saveConfig();
+
+    }, 700);
+
+}
+
+
+
+// Kleiner Indikator unten rechts (Speichern… / Gespeichert / Fehler)
+
+let autosaveHideTimer = null;
+
+function showAutosave(state) {
+
+    const el = document.getElementById('autosave-indicator');
+
+    if (!el) return;
+
+    const icon = el.querySelector('.asi-icon');
+
+    const text = el.querySelector('.asi-text');
+
+    el.classList.remove('hidden', 'saving', 'saved', 'error');
+
+    if (autosaveHideTimer) { clearTimeout(autosaveHideTimer); autosaveHideTimer = null; }
+
+
+
+    if (state === 'saving') {
+
+        el.classList.add('saving');
+
+        icon.className = 'fas fa-circle-notch fa-spin asi-icon';
+
+        text.textContent = 'Speichern…';
+
+    } else if (state === 'saved') {
+
+        el.classList.add('saved');
+
+        icon.className = 'fas fa-check asi-icon';
+
+        text.textContent = 'Gespeichert';
+
+        autosaveHideTimer = setTimeout(() => el.classList.add('hidden'), 1800);
+
+    } else if (state === 'error') {
+
+        el.classList.add('error');
+
+        icon.className = 'fas fa-exclamation-triangle asi-icon';
+
+        text.textContent = 'Fehler beim Speichern';
+
+        autosaveHideTimer = setTimeout(() => el.classList.add('hidden'), 4500);
 
     }
+
+}
+
+
+
+function canSaveMainConfig() {
+
+    return ['all', 'manage_general', 'manage_channels', 'manage_roles', 'manage_tickets', 'manage_reactions']
+
+        .some(p => userPermissions.includes(p));
+
+}
+
+
+
+function canSaveFivemConfig() {
+
+    return userPermissions.includes('all') || userPermissions.includes('manage_fivem_settings');
 
 }
 
@@ -770,9 +834,7 @@ function addVoteChannelRow(channelId = '', emojis = []) {
 
         row.remove();
 
-        hasUnsavedChanges = true;
-
-        updateSaveButtonVisibility();
+        markDirty();
 
     };
 
@@ -790,9 +852,9 @@ function addVoteChannelRow(channelId = '', emojis = []) {
 
     // Listeners for inputs in this new row
 
-    select.addEventListener('change', () => { hasUnsavedChanges = true; updateSaveButtonVisibility(); });
+    select.addEventListener('change', () => { markDirty(); });
 
-    emojiInput.addEventListener('input', () => { hasUnsavedChanges = true; updateSaveButtonVisibility(); });
+    emojiInput.addEventListener('input', () => { markDirty(); });
 
 }
 
@@ -868,7 +930,7 @@ function addRoleSyncRow(targetId = '', sourceIds = []) {
 
             </div>
 
-            <button class="del-btn" onclick="this.parentElement.parentElement.remove(); hasUnsavedChanges = true; updateSaveButtonVisibility();"><i class="fas fa-trash"></i></button>
+            <button class="del-btn" onclick="this.parentElement.parentElement.remove(); markDirty();"><i class="fas fa-trash"></i></button>
 
         </div>
 
@@ -958,7 +1020,7 @@ function addTicketTypeRow(key = '', data = { label: 'Support', prefix: 'ticket',
 
             <input type="text" class="key-input" placeholder="ID (z.B. support)" value="${key}">
 
-            <button class="del-btn" type="button" onclick="this.parentElement.parentElement.remove(); hasUnsavedChanges = true; updateSaveButtonVisibility();"><i class="fas fa-times"></i></button>
+            <button class="del-btn" type="button" onclick="this.parentElement.parentElement.remove(); markDirty();"><i class="fas fa-times"></i></button>
 
         </div>
 
@@ -1132,7 +1194,7 @@ function addTag(containerId, id, type, isNew = true) {
 
         <span>${type === 'channel' ? '#' + getName(id, 'channel') : (type === 'role' ? '@' + getName(id, 'role') : id)}</span>
 
-        <i class="fas fa-times" onclick="this.parentElement.remove(); hasUnsavedChanges = true; updateSaveButtonVisibility();"></i>
+        <i class="fas fa-times" onclick="this.parentElement.remove(); markDirty();"></i>
 
     `;
 
@@ -1142,9 +1204,7 @@ function addTag(containerId, id, type, isNew = true) {
 
     if (isNew) {
 
-        hasUnsavedChanges = true;
-
-        updateSaveButtonVisibility();
+        markDirty();
 
     }
 
@@ -1190,9 +1250,18 @@ function setupBuilders() {
 
 
 
+let saveInFlight = false;
+let saveQueued = false;
+
 async function saveConfig() {
 
-    showLoading(true);
+    // Läuft bereits ein Save? Dann nach Abschluss erneut speichern (letzter Stand gewinnt)
+
+    if (saveInFlight) { saveQueued = true; return; }
+
+    saveInFlight = true;
+
+    showAutosave('saving');
 
     try {
 
@@ -1430,47 +1499,43 @@ async function saveConfig() {
 
 
 
-        // Send API Requests (Parallel, mit Auth-Token)
+        // Nur die Konfigurationen senden, für die der Nutzer Rechte hat
+
+        // (verhindert 403-Fehler, wenn z.B. nur FiveM-Rechte vorhanden sind)
+
+        const doMain = canSaveMainConfig();
+
+        const doFivem = canSaveFivemConfig();
+
+
 
         const [mainRes, fivemRes] = await Promise.all([
 
-            fetchWithAuth(API_URL, {
+            doMain ? fetchWithAuth(API_URL, { method: 'POST', body: JSON.stringify(newMainConfig) }) : Promise.resolve('skip'),
 
-                method: 'POST',
-
-                body: JSON.stringify(newMainConfig)
-
-            }),
-
-            fetchWithAuth(FIVEM_CONFIG_URL, {
-
-                method: 'POST',
-
-                body: JSON.stringify(newFiveMConfig)
-
-            })
+            doFivem ? fetchWithAuth(FIVEM_CONFIG_URL, { method: 'POST', body: JSON.stringify(newFiveMConfig) }) : Promise.resolve('skip')
 
         ]);
 
 
 
-        if (!mainRes || !fivemRes) throw new Error('Session abgelaufen - bitte neu einloggen');
+        // null = Session abgelaufen (fetchWithAuth hat 401 erkannt)
+
+        if (mainRes === null || fivemRes === null) throw new Error('Session abgelaufen - bitte neu einloggen');
 
 
 
-        // Update locals
+        // Lokale Kopien nur für tatsächlich gespeicherte Configs aktualisieren
 
-        currentConfig = newMainConfig;
+        if (doMain) currentConfig = newMainConfig;
 
-        currentFiveMConfig = newFiveMConfig;
+        if (doFivem) currentFiveMConfig = newFiveMConfig;
 
 
-
-        showToast('Gespeichert!', 'success');
 
         hasUnsavedChanges = false;
 
-        updateSaveButtonVisibility();
+        showAutosave('saved');
 
 
 
@@ -1478,11 +1543,21 @@ async function saveConfig() {
 
         console.error(error);
 
-        showToast('Fehler: ' + error.message, 'error');
+        showAutosave('error');
 
     } finally {
 
-        showLoading(false);
+        saveInFlight = false;
+
+        // Während des Speicherns kam eine weitere Änderung -> erneut speichern
+
+        if (saveQueued) {
+
+            saveQueued = false;
+
+            scheduleAutoSave();
+
+        }
 
     }
 

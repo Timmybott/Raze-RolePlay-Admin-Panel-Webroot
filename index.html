@@ -585,13 +585,6 @@
                     </div>
                 </div>
 
-                <!-- Floating Save Button Area -->
-                <div id="save-area" class="save-area hidden">
-                    <button id="save-btn" type="button" class="save-btn">
-                        <i class="fas fa-save"></i> <span>Einstellungen Speichern</span>
-                    </button>
-                </div>
-
                 <!-- NEW: Player List Section -->
                 <div id="section-players" class="config-section fade-in">
                     <div class="section-header">
@@ -795,6 +788,12 @@
     <div id="toast" class="toast">
         <i class="fas fa-check-circle"></i>
         <span id="toast-message">Gespeichert!</span>
+    </div>
+
+    <!-- Auto-Save Indikator (unten rechts) -->
+    <div id="autosave-indicator" class="autosave-indicator hidden">
+        <i class="fas fa-circle-notch fa-spin asi-icon"></i>
+        <span class="asi-text">Speichern…</span>
     </div>
 
     <script src="script.js"></script>
