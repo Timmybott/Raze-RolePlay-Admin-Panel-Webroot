@@ -129,6 +129,11 @@ def load_config():
     except Exception as e:
         print(f"Fehler beim Laden der Discord-Konfiguration: {e}")
 
+DEFAULT_BAN_MESSAGE = ("\n\nDu wurdest von diesem Server gebannt.\n\nGrund: [Grund]\n\n"
+                       "Melde dich bitte auf unserem Discord: https://dc.gg/razerp")
+DEFAULT_KICK_MESSAGE = ("\n\nDu wurdest von diesem Server gekickt.\n\nGrund: [Grund]\n\n"
+                        "Bei Fragen melde dich auf unserem Discord: https://dc.gg/razerp")
+
 def load_fivem_config():
     global FIVEM_CONFIG
     try:
@@ -140,7 +145,8 @@ def load_fivem_config():
                 "FIVEM_WHITELIST_ROLE_ENABLED": False,
                 "FIVEM_WHITELIST_ROLE_ID": None,
                 "FIVEM_WHITELIST_MESSAGE": "Du bist nicht auf der Whitelist.",
-                "FIVEM_BANLIST_MESSAGE": "Du bist gebannt.",
+                "FIVEM_BANLIST_MESSAGE": DEFAULT_BAN_MESSAGE,
+                "FIVEM_KICK_MESSAGE": DEFAULT_KICK_MESSAGE,
                 "FIVEM_WHITELIST": [],
                 "FIVEM_BANLIST": []
             }
@@ -148,6 +154,10 @@ def load_fivem_config():
         else:
             with open(FIVEM_CONFIG_FILE, 'r', encoding='utf-8') as f:
                 FIVEM_CONFIG = json.load(f)
+            # Fehlende Kick-Nachricht ergänzen (Migration)
+            if "FIVEM_KICK_MESSAGE" not in FIVEM_CONFIG:
+                FIVEM_CONFIG["FIVEM_KICK_MESSAGE"] = DEFAULT_KICK_MESSAGE
+                save_fivem_config()
         print("FiveM-Konfiguration erfolgreich geladen.")
     except Exception as e:
         print(f"Fehler beim Laden der FiveM-Konfiguration: {e}")
@@ -175,9 +185,61 @@ def save_fivem_config():
     except Exception as e:
         print(f"Fehler beim Speichern der FiveM-Konfiguration: {e}")
 
+# --- BANN-SYSTEM ---
+# Strukturierte Bans (Grund + Ablaufzeit) liegen in einer SEPARATEN Datei, damit
+# das Auto-Save der FiveM-Config sie nicht überschreibt.
+BANS_FILE = os.path.join(BASE_DIR, 'fivem_bans.json')
+FIVEM_BANS = []
+# Identifier-Typen, über die gebannt wird (stabil; IP wird bewusst ausgelassen)
+BAN_IDENTIFIER_PREFIXES = ("license:", "license2:", "steam:", "discord:", "xbl:", "live:", "fivem:")
+
+def load_bans():
+    global FIVEM_BANS
+    try:
+        if os.path.exists(BANS_FILE):
+            with open(BANS_FILE, 'r', encoding='utf-8') as f:
+                FIVEM_BANS = json.load(f)
+            if not isinstance(FIVEM_BANS, list):
+                FIVEM_BANS = []
+            print(f"[Bans] {len(FIVEM_BANS)} aktive Bans geladen.")
+    except Exception as e:
+        print(f"[Bans] Fehler beim Laden: {e}")
+        FIVEM_BANS = []
+
+def save_bans():
+    try:
+        with open(BANS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(FIVEM_BANS, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"[Bans] Fehler beim Speichern: {e}")
+
+def ban_is_active(ban):
+    expires = ban.get("expires")
+    return expires is None or expires > time.time()
+
+def prune_expired_bans():
+    """Entfernt abgelaufene Bans und speichert bei Änderung."""
+    global FIVEM_BANS
+    before = len(FIVEM_BANS)
+    FIVEM_BANS = [b for b in FIVEM_BANS if ban_is_active(b)]
+    if len(FIVEM_BANS) != before:
+        save_bans()
+
+def format_reason_message(template, reason):
+    """Ersetzt [Grund]/[grund]/[reason] im Nachrichten-Template durch den Grund."""
+    reason = (reason or "").strip() or "Kein Grund angegeben"
+    template = template or ""
+    for ph in ("[Grund]", "[grund]", "[GRUND]", "[reason]", "[Reason]"):
+        template = template.replace(ph, reason)
+    return template
+
+def filter_ban_identifiers(identifiers):
+    return [i for i in (identifiers or []) if isinstance(i, str) and i.startswith(BAN_IDENTIFIER_PREFIXES)]
+
 # Load config initially
 load_config()
 load_fivem_config()
+load_bans()
 
 # --- ADMIN SYSTEM ---
 ADMIN_CONFIG_FILE = os.path.join(BASE_DIR, 'admin_config.json')
@@ -405,15 +467,29 @@ async def handle_fivem_validate_post(request):
         data = await request.json()
         name = data.get('name', 'Unknown')
         identifiers = data.get('identifiers', [])
-        
-        # 1. Banlist Check
+
+        ban_template = FIVEM_CONFIG.get("FIVEM_BANLIST_MESSAGE", "Du bist gebannt.")
+
+        # 1a. Strukturierte Bans (Grund + Ablaufzeit) - werden IMMER durchgesetzt
+        prune_expired_bans()
+        id_set = set(identifiers)
+        for ban in FIVEM_BANS:
+            if not ban_is_active(ban):
+                continue
+            if id_set.intersection(ban.get("identifiers", [])):
+                return web.json_response({
+                    "allowed": False,
+                    "reason": format_reason_message(ban_template, ban.get("reason"))
+                })
+
+        # 1b. Manuelle Banlist (einfache Identifier, nur bei aktivierter Banlist)
         if FIVEM_CONFIG.get("FIVEM_BANLIST_ENABLED"):
             banlist = FIVEM_CONFIG.get("FIVEM_BANLIST", [])
             for identifier in identifiers:
                 if identifier in banlist:
                     return web.json_response({
                         "allowed": False,
-                        "reason": FIVEM_CONFIG.get("FIVEM_BANLIST_MESSAGE", "Du bist gebannt.")
+                        "reason": format_reason_message(ban_template, "Permanenter Bann")
                     })
 
         # 2. Whitelist Check
@@ -580,9 +656,26 @@ async def handle_fivem_command_post(request):
 PLAYER_ACTION_QUEUE = []
 VALID_PLAYER_ACTIONS = {"set_name", "set_job", "set_cash", "set_bank",
                         "add_item", "remove_item", "set_item"}
+MODERATION_ACTIONS = {"kick", "ban"}
+
+def get_player_identifiers_by_id(server_id):
+    """Sucht die Identifier eines aktuell online Spielers im letzten Status-Payload."""
+    try:
+        for p in FIVEM_STATUS.get("players", []):
+            if p.get("id") == server_id:
+                return p.get("identifiers", [])
+    except Exception:
+        pass
+    return []
+
+def get_player_name_by_id(server_id):
+    for p in FIVEM_STATUS.get("players", []):
+        if p.get("id") == server_id:
+            return p.get("name") or p.get("rp_name") or "Unbekannt"
+    return "Unbekannt"
 
 async def handle_player_action_post(request):
-    """Queues a player edit action (name/job/money/inventory) for the game server."""
+    """Queues a player action (edit/kick/ban) for the game server."""
     current_user = await check_auth(request)
     if not current_user:
         return web.json_response({"error": "Unauthorized"}, status=401)
@@ -592,7 +685,7 @@ async def handle_player_action_post(request):
     try:
         data = await request.json()
         action = data.get("action")
-        if action not in VALID_PLAYER_ACTIONS:
+        if action not in VALID_PLAYER_ACTIONS and action not in MODERATION_ACTIONS:
             return web.json_response({"error": "Unbekannte Aktion"}, status=400)
 
         # Online-Spieler werden über die Server-ID angesprochen, Offline-Spieler
@@ -611,6 +704,52 @@ async def handle_player_action_post(request):
         if not isinstance(params, dict):
             params = {}
 
+        # --- Moderation: Kick / Ban ---
+        if action == "kick":
+            reason = str(params.get("reason") or "").strip()
+            message = format_reason_message(FIVEM_CONFIG.get("FIVEM_KICK_MESSAGE", DEFAULT_KICK_MESSAGE), reason)
+            PLAYER_ACTION_QUEUE.append({"action": "kick", "id": target_id, "identifier": identifier,
+                                        "params": {"message": message}})
+            name = get_player_name_by_id(target_id)
+            append_console_line(f"[Panel] {current_user}: KICK -> {name} (ID {target_id}) | Grund: {reason or '-'}", "rcon")
+            print(f"[Panel] Kick eingereiht von {current_user}: ID {target_id} | Grund: {reason}")
+            return web.json_response({"status": "queued"})
+
+        if action == "ban":
+            reason = str(params.get("reason") or "").strip()
+            try:
+                duration = int(params.get("duration") or 0)  # Sekunden, 0 = permanent
+            except (TypeError, ValueError):
+                duration = 0
+            identifiers = filter_ban_identifiers(params.get("identifiers") or get_player_identifiers_by_id(target_id))
+            if not identifiers:
+                return web.json_response({"error": "Keine bann-fähigen Identifier für diesen Spieler gefunden"}, status=400)
+
+            name = params.get("name") or get_player_name_by_id(target_id)
+            ban_entry = {
+                "id": uuid.uuid4().hex,
+                "identifiers": identifiers,
+                "name": name,
+                "reason": reason,
+                "by": current_user,
+                "created": int(time.time()),
+                "expires": (int(time.time()) + duration) if duration > 0 else None
+            }
+            FIVEM_BANS.append(ban_entry)
+            save_bans()
+
+            # Spieler sofort vom Server werfen (mit Ban-Nachricht inkl. Grund)
+            message = format_reason_message(FIVEM_CONFIG.get("FIVEM_BANLIST_MESSAGE", DEFAULT_BAN_MESSAGE), reason)
+            if target_id is not None:
+                PLAYER_ACTION_QUEUE.append({"action": "kick", "id": target_id, "identifier": identifier,
+                                            "params": {"message": message}})
+
+            dauer_txt = "permanent" if duration <= 0 else f"{duration}s"
+            append_console_line(f"[Panel] {current_user}: BAN ({dauer_txt}) -> {name} | Grund: {reason or '-'}", "rcon")
+            print(f"[Panel] Ban eingereiht von {current_user}: {name} ({dauer_txt}) | Grund: {reason}")
+            return web.json_response({"status": "queued", "ban_id": ban_entry["id"]})
+
+        # --- Normale Spieler-Edits ---
         entry = {
             "action": action,
             "id": target_id,
@@ -622,6 +761,39 @@ async def handle_player_action_post(request):
         append_console_line(f"[Panel] {current_user}: {action} -> Spieler {target_label} {json.dumps(params, ensure_ascii=False)}", "rcon")
         print(f"[Panel] Spieler-Aktion eingereiht von {current_user}: {action} -> {target_label} {params}")
         return web.json_response({"status": "queued"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+# --- BANS: Auflisten & Entbannen (für die Bann-Verwaltung im Panel) ---
+async def handle_bans_get(request):
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_players", "manage_fivem_settings"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    prune_expired_bans()
+    return web.json_response(FIVEM_BANS)
+
+async def handle_unban_post(request):
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_players", "manage_fivem_settings"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    try:
+        data = await request.json()
+        ban_id = data.get("id")
+        global FIVEM_BANS
+        before = len(FIVEM_BANS)
+        removed = [b for b in FIVEM_BANS if b.get("id") == ban_id]
+        FIVEM_BANS = [b for b in FIVEM_BANS if b.get("id") != ban_id]
+        if len(FIVEM_BANS) == before:
+            return web.json_response({"error": "Ban nicht gefunden"}, status=404)
+        save_bans()
+        name = removed[0].get("name", "?") if removed else "?"
+        append_console_line(f"[Panel] {current_user}: ENTBANNT -> {name}", "rcon")
+        print(f"[Panel] Entbannt von {current_user}: {name}")
+        return web.json_response({"status": "ok"})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -963,6 +1135,8 @@ async def start_web_server():
     app.router.add_post('/api/fivem/player_details_request', handle_player_details_request)
     app.router.add_post('/api/fivem/player_details', handle_player_details_post)
     app.router.add_get('/api/fivem/player_details', handle_player_details_get)
+    app.router.add_get('/api/fivem/bans', handle_bans_get)
+    app.router.add_post('/api/fivem/unban', handle_unban_post)
     
     # Auth & Admin Routes
     app.router.add_post('/api/login', handle_login)

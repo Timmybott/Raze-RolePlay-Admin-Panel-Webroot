@@ -551,8 +551,17 @@
                             </div>
                             <div class="form-group">
                                 <label>Ban Nachricht</label>
-                                <textarea name="FIVEM_BANLIST_MESSAGE" id="FIVEM_BANLIST_MESSAGE" rows="3"
-                                    placeholder="Du wurdest gebannt."></textarea>
+                                <textarea name="FIVEM_BANLIST_MESSAGE" id="FIVEM_BANLIST_MESSAGE" rows="4"
+                                    placeholder="Hallo, du wurdest von diesem Server gebannt.&#10;&#10;Grund: [Grund]&#10;&#10;Melde dich auf unserem Discord: https://dc.gg/razerp"></textarea>
+                                <small class="text-muted">Platzhalter <code>[Grund]</code> wird durch den eingegebenen
+                                    Bann-Grund ersetzt.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Kick Nachricht</label>
+                                <textarea name="FIVEM_KICK_MESSAGE" id="FIVEM_KICK_MESSAGE" rows="4"
+                                    placeholder="Du wurdest vom Server gekickt.&#10;&#10;Grund: [Grund]"></textarea>
+                                <small class="text-muted">Platzhalter <code>[Grund]</code> wird durch den eingegebenen
+                                    Kick-Grund ersetzt.</small>
                             </div>
                         </div>
 
@@ -581,6 +590,20 @@
                                     onclick="addFiveMListEntry('banlist')">Add</button>
                             </div>
                             <textarea name="FIVEM_BANLIST" id="FIVEM_BANLIST" style="display:none;"></textarea>
+                        </div>
+
+                        <!-- Aktive Banns (vom Panel verhängt, mit Grund & Ablauf) -->
+                        <div class="card full-width">
+                            <div class="card-header" style="justify-content:space-between;">
+                                <span><i class="fas fa-gavel"></i> Aktive Banns</span>
+                                <button type="button" class="small-btn" onclick="loadBans()">
+                                    <i class="fas fa-sync-alt"></i> Aktualisieren</button>
+                            </div>
+                            <p class="description-text">Über die Spieler-Liste verhängte Banns (mit Grund & Ablaufzeit).
+                            </p>
+                            <div id="bans-list" class="bans-list">
+                                <div class="empty-state">Lade Banns…</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -781,6 +804,41 @@
             <div id="player-modal-body" class="modal-grid">
                 <!-- Inhalt wird dynamisch von JS gerendert (renderPlayerModal) -->
             </div>
+        </div>
+    </div>
+
+    <!-- MODERATION MODAL (Ban / Kick) -->
+    <div id="moderation-modal" class="modal hidden">
+        <div class="modal-content card" style="max-width: 460px;">
+            <span class="close-modal" onclick="closeModerationModal()">&times;</span>
+            <div class="modal-header">
+                <h2 id="moderation-title"><i class="fas fa-gavel"></i> Spieler bannen</h2>
+            </div>
+            <div class="form-group">
+                <label>Spieler</label>
+                <input type="text" id="moderation-player" disabled>
+            </div>
+            <div class="form-group">
+                <label>Grund</label>
+                <textarea id="moderation-reason" rows="2" placeholder="Grund eingeben…"></textarea>
+            </div>
+            <div id="moderation-duration-row" class="form-row">
+                <div class="form-group">
+                    <label>Dauer</label>
+                    <input type="number" id="moderation-duration" min="0" value="1">
+                </div>
+                <div class="form-group">
+                    <label>Einheit</label>
+                    <select id="moderation-duration-unit">
+                        <option value="60">Minuten</option>
+                        <option value="3600" selected>Stunden</option>
+                        <option value="86400">Tage</option>
+                        <option value="0">Permanent</option>
+                    </select>
+                </div>
+            </div>
+            <button type="button" id="moderation-confirm" class="save-btn"
+                style="width:100%; justify-content:center;" onclick="submitModeration()">Bestätigen</button>
         </div>
     </div>
 

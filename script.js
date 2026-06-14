@@ -1369,7 +1369,7 @@ async function saveConfig() {
 
         // Textareas (Messages)
 
-        const textAreas = ['FIVEM_WHITELIST_MESSAGE', 'FIVEM_BANLIST_MESSAGE'];
+        const textAreas = ['FIVEM_WHITELIST_MESSAGE', 'FIVEM_BANLIST_MESSAGE', 'FIVEM_KICK_MESSAGE'];
 
         textAreas.forEach(id => {
 
@@ -1601,6 +1601,14 @@ function setupNavigation() {
 
             updateSaveButtonVisibility();
 
+            // Aktive Banns laden, wenn die FiveM-Einstellungen geöffnet werden
+
+            if (sectionId === 'fivem-general') {
+
+                loadBans();
+
+            }
+
             // Live-Karte erst beim ersten Öffnen initialisieren (Leaflet braucht sichtbaren Container)
 
             if (sectionId === 'fivem-map') {
@@ -1819,6 +1827,8 @@ function updatePlayerListPage(data) {
 
 
 
+    const canModerate = canEditPlayers();
+
     tableBody.innerHTML = data.players.map(p => `
         <tr onclick="showPlayerDetails('${p.id}')">
             <td style="font-family:monospace; color:#aaa; font-size:1.1rem;">${p.id}</td>
@@ -1827,12 +1837,153 @@ function updatePlayerListPage(data) {
                 <div style="font-size:0.85rem; color:#888;">${escapeHtml(p.rp_name || '-')}</div>
             </td>
             <td><span style="color:#aaa;">${p.ping} ms</span></td>
-            <td>
-                <!-- Action column empty for now as requested -->
+            <td style="text-align:right;">
+                ${canModerate ? `
+                <button class="row-action kick" title="Kicken" onclick="event.stopPropagation(); openKickModal('${p.id}')"><i class="fas fa-door-open"></i></button>
+                <button class="row-action ban" title="Bannen" onclick="event.stopPropagation(); openBanModal('${p.id}')"><i class="fas fa-gavel"></i></button>
+                ` : ''}
             </td>
         </tr>
     `).join('');
 
+}
+
+// --- MODERATION (Ban / Kick) ---
+
+let moderationContext = null; // { type, playerId, playerName, identifiers }
+
+function openModeration(type, playerId) {
+    const player = (currentServerData.players || []).find(p => p.id == playerId);
+    if (!player) { showToast('Spieler nicht gefunden', 'error'); return; }
+
+    moderationContext = {
+        type: type,
+        playerId: player.id,
+        playerName: player.name || 'Unbekannt',
+        identifiers: player.identifiers || []
+    };
+
+    document.getElementById('moderation-title').innerHTML = type === 'ban'
+        ? '<i class="fas fa-gavel"></i> Spieler bannen'
+        : '<i class="fas fa-door-open"></i> Spieler kicken';
+    document.getElementById('moderation-player').value = `${player.name} (ID ${player.id})`;
+    document.getElementById('moderation-reason').value = '';
+    // Dauer-Zeile nur beim Bannen anzeigen
+    document.getElementById('moderation-duration-row').style.display = type === 'ban' ? '' : 'none';
+
+    const confirmBtn = document.getElementById('moderation-confirm');
+    confirmBtn.textContent = type === 'ban' ? 'Bannen' : 'Kicken';
+    confirmBtn.classList.toggle('btn-danger', true);
+
+    document.getElementById('moderation-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('moderation-reason').focus(), 50);
+}
+
+function openBanModal(playerId) { openModeration('ban', playerId); }
+function openKickModal(playerId) { openModeration('kick', playerId); }
+
+function closeModerationModal() {
+    document.getElementById('moderation-modal').classList.add('hidden');
+    moderationContext = null;
+}
+
+async function submitModeration() {
+    if (!moderationContext) return;
+    const ctx = moderationContext;
+    const reason = document.getElementById('moderation-reason').value.trim();
+    if (!reason) { showToast('Bitte einen Grund angeben', 'error'); return; }
+
+    const params = { reason };
+    if (ctx.type === 'ban') {
+        const val = parseInt(document.getElementById('moderation-duration').value);
+        const unit = parseInt(document.getElementById('moderation-duration-unit').value);
+        // unit 0 = permanent; sonst Wert * Einheit (Sekunden)
+        params.duration = (unit === 0 || isNaN(val) || val <= 0) ? 0 : val * unit;
+        params.identifiers = ctx.identifiers;
+        params.name = ctx.playerName;
+    }
+
+    try {
+        const res = await fetchWithAuth('/api/fivem/player_action', {
+            method: 'POST',
+            body: JSON.stringify({
+                action: ctx.type,
+                id: ctx.playerId,
+                identifier: (ctx.identifiers || []).find(i => i.startsWith('license:')) || (ctx.identifiers || [])[0],
+                params: params
+            })
+        });
+        if (res) {
+            showToast(ctx.type === 'ban' ? 'Spieler gebannt' : 'Spieler gekickt');
+            closeModerationModal();
+            // Wenn das Spieler-Popup desselben Spielers offen ist, schließen
+            if (modalState && String(modalState.playerId) === String(ctx.playerId)) closePlayerModal();
+        }
+    } catch (e) {
+        showToast('Fehler: ' + e.message, 'error');
+    }
+}
+
+// --- BANN-VERWALTUNG (Aktive Banns in den FiveM-Einstellungen) ---
+
+function formatBanExpiry(ban) {
+    if (!ban.expires) return 'Permanent';
+    const remaining = ban.expires * 1000 - Date.now();
+    if (remaining <= 0) return 'Abgelaufen';
+    const d = new Date(ban.expires * 1000);
+    const days = Math.floor(remaining / 86400000);
+    const hours = Math.floor((remaining % 86400000) / 3600000);
+    const mins = Math.floor((remaining % 3600000) / 60000);
+    let left = days > 0 ? `${days}d ${hours}h` : (hours > 0 ? `${hours}h ${mins}m` : `${mins}m`);
+    return `${d.toLocaleString('de-DE')} (noch ${left})`;
+}
+
+async function loadBans() {
+    const container = document.getElementById('bans-list');
+    if (!container) return;
+    container.innerHTML = '<div class="empty-state">Lade Banns…</div>';
+    try {
+        const res = await fetchWithAuth('/api/fivem/bans');
+        if (!res) return;
+        const bans = await res.json();
+        if (!Array.isArray(bans) || bans.length === 0) {
+            container.innerHTML = '<div class="empty-state">Keine aktiven Banns.</div>';
+            return;
+        }
+        container.innerHTML = bans.map(b => `
+            <div class="ban-row">
+                <div class="ban-info">
+                    <div class="ban-name">${escapeHtml(b.name || 'Unbekannt')}</div>
+                    <div class="ban-meta">
+                        <span><i class="fas fa-comment"></i> ${escapeHtml(b.reason || 'Kein Grund')}</span>
+                        <span><i class="fas fa-clock"></i> ${escapeHtml(formatBanExpiry(b))}</span>
+                        <span><i class="fas fa-user-shield"></i> ${escapeHtml(b.by || '-')}</span>
+                    </div>
+                    <div class="ban-ids">${(b.identifiers || []).map(i => escapeHtml(i)).join(', ')}</div>
+                </div>
+                <button class="small-btn" onclick="unbanPlayer('${escapeHtml(b.id)}')">
+                    <i class="fas fa-unlock"></i> Entbannen</button>
+            </div>
+        `).join('');
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state" style="color:#ff5468;">Fehler: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function unbanPlayer(banId) {
+    if (!confirm('Diesen Bann wirklich aufheben?')) return;
+    try {
+        const res = await fetchWithAuth('/api/fivem/unban', {
+            method: 'POST',
+            body: JSON.stringify({ id: banId })
+        });
+        if (res) {
+            showToast('Bann aufgehoben');
+            loadBans();
+        }
+    } catch (e) {
+        showToast('Fehler: ' + e.message, 'error');
+    }
 }
 
 

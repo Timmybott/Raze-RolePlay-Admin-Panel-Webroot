@@ -1468,6 +1468,65 @@ input:checked + .slider:before { transform: translateX(22px); background-color: 
 .perm-master { background: rgba(255, 206, 78, 0.08); border-color: rgba(255, 206, 78, 0.3); }
 .perm-master input { width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer; }
 
+/* ===================== Moderation (Ban / Kick) ===================== */
+.row-action {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-soft);
+    cursor: pointer;
+    margin-left: 6px;
+    transition: all 0.18s;
+}
+
+.row-action.kick { color: var(--warn); border-color: rgba(255, 176, 32, 0.3); background: rgba(255, 176, 32, 0.1); }
+.row-action.kick:hover { background: var(--warn); color: #2a1a00; }
+.row-action.ban { color: var(--danger); border-color: rgba(255, 84, 104, 0.3); background: rgba(255, 84, 104, 0.1); }
+.row-action.ban:hover { background: var(--danger); color: #fff; }
+
+/* Bestätigungs-Button im Moderation-Modal */
+.save-btn.btn-danger { background: var(--danger); box-shadow: 0 8px 22px rgba(255, 84, 104, 0.3); }
+.save-btn.btn-danger:hover { background: #ff6a7c; }
+
+#moderation-player { opacity: 0.75; cursor: not-allowed; }
+
+/* Aktive Banns Liste */
+.bans-list { display: flex; flex-direction: column; gap: 10px; }
+
+.ban-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+}
+
+.ban-info { flex: 1; min-width: 0; }
+.ban-name { font-weight: 600; color: #fff; margin-bottom: 4px; }
+
+.ban-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 0.82rem;
+    color: var(--text-soft);
+}
+
+.ban-meta i { color: var(--text-muted); margin-right: 4px; }
+
+.ban-ids {
+    font-family: monospace;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    margin-top: 6px;
+    word-break: break-all;
+}
+
 /* ===================== Utilities ===================== */
 .hidden { display: none !important; }
 .perm-hidden { display: none !important; }
