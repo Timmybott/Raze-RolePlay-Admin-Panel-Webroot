@@ -104,6 +104,21 @@
 
                 <ul class="dropdown-menu">
                     <li class="dropdown-header">
+                        <i class="fas fa-briefcase"></i> <span>FiveM Jobs</span>
+                        <i class="fas fa-chevron-down arrow"></i>
+                    </li>
+                    <ul class="dropdown-content">
+                        <li class="nav-item" data-section="jobs-manage" data-permission="manage_jobs">
+                            <i class="fas fa-id-badge"></i> <span>Jobs</span>
+                        </li>
+                        <li class="nav-item" data-section="jobs-create" data-permission="manage_jobs">
+                            <i class="fas fa-plus-circle"></i> <span>Jobs erstellen</span>
+                        </li>
+                    </ul>
+                </ul>
+
+                <ul class="dropdown-menu">
+                    <li class="dropdown-header">
                         <i class="fas fa-terminal"></i> <span>Rcon</span>
                         <i class="fas fa-chevron-down arrow"></i>
                     </li>
@@ -729,6 +744,45 @@
                         <div id="console-readonly-note" class="console-readonly-note hidden">
                             <i class="fas fa-eye"></i> Nur-Lese-Zugriff – du kannst die Konsole sehen, aber keine
                             Befehle senden.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FiveM Jobs: Verwaltung -->
+                <div id="section-jobs-manage" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Jobs</h3>
+                        <p>Bestehende ESX-Jobs ansehen und Mitarbeiter verwalten.</p>
+                    </div>
+
+                    <div class="card full-width">
+                        <div class="list-toolbar">
+                            <div class="search-wrapper" style="flex:1; min-width:200px;">
+                                <i class="fas fa-search search-icon"></i>
+                                <input type="text" id="jobs-search" class="search-input"
+                                    placeholder="Job suchen (Name / Label)...">
+                            </div>
+                            <button type="button" class="small-btn" onclick="loadJobsManage(true)">
+                                <i class="fas fa-sync-alt"></i> Aktualisieren</button>
+                        </div>
+                        <div id="jobs-manage-list" class="jobs-list">
+                            <div class="empty-state">Lade Jobs…</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FiveM Jobs: Creator (Platzhalter, Phase 2) -->
+                <div id="section-jobs-create" class="config-section fade-in">
+                    <div class="section-header">
+                        <h3>Jobs erstellen</h3>
+                        <p>Vollständiger ESX-Job-Creator (Grades, Gehälter, Locations).</p>
+                    </div>
+                    <div class="card full-width">
+                        <div class="empty-state" style="padding:50px 20px;">
+                            <i class="fas fa-tools" style="font-size:2rem; color:#444; display:block; margin-bottom:14px;"></i>
+                            Der Job-Creator wird in Phase 2 ergänzt (neue Resource <code>raze_jobscreator</code> +
+                            <code>raze_job_data</code>-Tabelle). Phase 1 (Jobs-Verwaltung) ist hier links unter „Jobs"
+                            bereits nutzbar.
                         </div>
                     </div>
                 </div>

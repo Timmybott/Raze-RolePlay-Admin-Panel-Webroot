@@ -852,12 +852,106 @@ async def handle_player_details_get(request):
         return web.json_response({"status": "ready", "data": entry["data"]})
     return web.json_response({"status": "pending"})
 
+# --- JOB-MITARBEITER (DB-Abfrage über den Game-Server) ---
+JOB_EMPLOYEE_REQUEST_QUEUE = []
+JOB_EMPLOYEES = {}  # request_id -> {"data": ..., "ts": ...}
+
+async def handle_job_employees_request(request):
+    """Panel fordert die Mitarbeiterliste eines Jobs an."""
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_jobs"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    try:
+        data = await request.json()
+        job = data.get("job")
+        if not job or not isinstance(job, str):
+            return web.json_response({"error": "Job fehlt"}, status=400)
+        request_id = uuid.uuid4().hex
+        JOB_EMPLOYEE_REQUEST_QUEUE.append({"request_id": request_id, "job": job})
+        return web.json_response({"request_id": request_id})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+async def handle_job_employees_post(request):
+    """Game-Server liefert die Mitarbeiterliste zurück."""
+    if not check_fivem_key(request):
+        return web.json_response({"error": "Invalid API key"}, status=401)
+    try:
+        data = await request.json()
+        request_id = data.get("request_id")
+        if request_id:
+            JOB_EMPLOYEES[request_id] = {"data": data.get("data"), "ts": time.time()}
+            cutoff = time.time() - 120
+            for stale in [k for k, v in JOB_EMPLOYEES.items() if v["ts"] < cutoff]:
+                del JOB_EMPLOYEES[stale]
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+async def handle_job_employees_get(request):
+    """Panel pollt die Mitarbeiterliste (einmalige Abholung)."""
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_jobs"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    request_id = request.query.get("id")
+    entry = JOB_EMPLOYEES.pop(request_id, None) if request_id else None
+    if entry is not None:
+        return web.json_response({"status": "ready", "data": entry["data"]})
+    return web.json_response({"status": "pending"})
+
+async def handle_job_action_post(request):
+    """Einstellen / Feuern / Auf- & Abstufen eines Mitarbeiters (setzt Job+Grade)."""
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_jobs"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    try:
+        data = await request.json()
+        action = data.get("action")  # hire | fire | promote | demote (nur fürs Logging)
+        job = data.get("job")
+        grade = data.get("grade", 0)
+        if not job or not isinstance(job, str):
+            return web.json_response({"error": "Job fehlt"}, status=400)
+        try:
+            grade = int(grade)
+        except (TypeError, ValueError):
+            grade = 0
+
+        target_id = data.get("id")
+        identifier = data.get("identifier")
+        if target_id is not None:
+            try:
+                target_id = int(target_id)
+            except (TypeError, ValueError):
+                target_id = None
+        if target_id is None and not identifier:
+            return web.json_response({"error": "Spieler-ID oder Identifier benötigt"}, status=400)
+
+        # Nutzt die bestehende set_job-Aktion (online via ESX, offline via DB)
+        PLAYER_ACTION_QUEUE.append({
+            "action": "set_job",
+            "id": target_id,
+            "identifier": identifier,
+            "params": {"job": job, "grade": grade}
+        })
+        target_label = target_id if target_id is not None else identifier
+        append_console_line(f"[Panel] {current_user}: JOB {action or 'set'} -> Spieler {target_label}: {job} (Grade {grade})", "rcon")
+        print(f"[Panel] Job-Aktion von {current_user}: {action} -> {target_label} = {job}/{grade}")
+        return web.json_response({"status": "queued"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
 async def handle_fivem_commands_get(request):
     # Called by FiveM Server script
     if not check_fivem_key(request):
         return web.json_response({"error": "Invalid API key"}, status=401)
 
-    response = {"commands": [], "actions": [], "detail_requests": []}
+    response = {"commands": [], "actions": [], "detail_requests": [], "job_employee_requests": []}
     if COMMAND_QUEUE:
         response["commands"] = list(COMMAND_QUEUE)
         COMMAND_QUEUE.clear()
@@ -867,6 +961,9 @@ async def handle_fivem_commands_get(request):
     if DETAIL_REQUEST_QUEUE:
         response["detail_requests"] = list(DETAIL_REQUEST_QUEUE)
         DETAIL_REQUEST_QUEUE.clear()
+    if JOB_EMPLOYEE_REQUEST_QUEUE:
+        response["job_employee_requests"] = list(JOB_EMPLOYEE_REQUEST_QUEUE)
+        JOB_EMPLOYEE_REQUEST_QUEUE.clear()
     return web.json_response(response)
 
 async def handle_console_post(request):
@@ -1137,6 +1234,10 @@ async def start_web_server():
     app.router.add_get('/api/fivem/player_details', handle_player_details_get)
     app.router.add_get('/api/fivem/bans', handle_bans_get)
     app.router.add_post('/api/fivem/unban', handle_unban_post)
+    app.router.add_post('/api/fivem/job_employees_request', handle_job_employees_request)
+    app.router.add_post('/api/fivem/job_employees', handle_job_employees_post)
+    app.router.add_get('/api/fivem/job_employees', handle_job_employees_get)
+    app.router.add_post('/api/fivem/job_action', handle_job_action_post)
     
     # Auth & Admin Routes
     app.router.add_post('/api/login', handle_login)

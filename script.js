@@ -456,7 +456,7 @@ function setupChangeListeners() {
 
         // Konsolen-, Such- und Kartenfilter-Felder sind keine Config-Werte
 
-        if (['console-input', 'all-player-search', 'map-filter-search', 'map-filter-job'].includes(input.id)) return;
+        if (['console-input', 'all-player-search', 'map-filter-search', 'map-filter-job', 'jobs-search'].includes(input.id)) return;
 
         // Exclude some if needed, but generally correct
 
@@ -1609,6 +1609,14 @@ function setupNavigation() {
 
             }
 
+            // Jobs laden, wenn die Job-Verwaltung geöffnet wird
+
+            if (sectionId === 'jobs-manage') {
+
+                loadJobsManage();
+
+            }
+
             // Live-Karte erst beim ersten Öffnen initialisieren (Leaflet braucht sichtbaren Container)
 
             if (sectionId === 'fivem-map') {
@@ -1662,6 +1670,8 @@ function updateHeader(sectionId) {
         'fivem-general': ['FiveM Server', 'Whitelist & Banlist Einstellungen'],
         'fivem-map': ['Live Karte', 'Spieler-Positionen in Echtzeit'],
         'fivem-console': ['FiveM Konsole', 'Live Server Logs & Rcon'],
+        'jobs-manage': ['Jobs', 'ESX-Jobs & Mitarbeiter verwalten'],
+        'jobs-create': ['Jobs erstellen', 'ESX-Job-Creator'],
         'admins': ['Admin Accounts', 'Verwaltung der Web-Panel Zugänge'],
         'players': ['Spieler Übersicht', 'Live Daten & Historie']
 
@@ -1983,6 +1993,202 @@ async function unbanPlayer(banId) {
         }
     } catch (e) {
         showToast('Fehler: ' + e.message, 'error');
+    }
+}
+
+// --- FIVEM JOBS: VERWALTUNG (Phase 1) ---
+let jobsManageCache = [];
+let jobEmployeesCache = {}; // jobName -> [employees]
+const expandedJobs = new Set();
+
+async function loadJobsManage(force) {
+    const container = document.getElementById('jobs-manage-list');
+    if (!container) return;
+    const search = document.getElementById('jobs-search');
+    if (search && !search._bound) { search.oninput = () => renderJobsManage(); search._bound = true; }
+
+    if (force || jobsManageCache.length === 0) {
+        container.innerHTML = '<div class="empty-state">Lade Jobs…</div>';
+        try {
+            const res = await fetchWithAuth('/api/fivem/jobs');
+            if (!res) return;
+            const jobs = await res.json();
+            jobsManageCache = Array.isArray(jobs) ? jobs : [];
+            if (force) jobEmployeesCache = {}; // bei manuellem Refresh Mitarbeiter neu laden
+        } catch (e) {
+            container.innerHTML = `<div class="empty-state" style="color:#ff5468;">Fehler: ${escapeHtml(e.message)}</div>`;
+            return;
+        }
+    }
+    renderJobsManage();
+}
+
+function renderJobsManage() {
+    const container = document.getElementById('jobs-manage-list');
+    if (!container) return;
+    const q = (document.getElementById('jobs-search')?.value || '').trim().toLowerCase();
+    let jobs = jobsManageCache;
+    if (q) jobs = jobs.filter(j => (j.label || '').toLowerCase().includes(q) || (j.name || '').toLowerCase().includes(q));
+    if (jobs.length === 0) {
+        container.innerHTML = '<div class="empty-state">Keine Jobs gefunden.</div>';
+        return;
+    }
+    container.innerHTML = jobs.map(j => {
+        const idx = jobsManageCache.indexOf(j);
+        const open = expandedJobs.has(j.name);
+        const gradeCount = (j.grades || []).length;
+        return `
+        <div class="job-card">
+            <div class="job-head" onclick="toggleJobCard('${safeAttr(j.name)}')">
+                <div class="job-titles">
+                    <span class="job-label">${escapeHtml(j.label || j.name)}</span>
+                    <span class="job-name">${escapeHtml(j.name)}</span>
+                </div>
+                <div class="job-head-right">
+                    <span class="job-grade-count">${gradeCount} Grade${gradeCount === 1 ? '' : 's'}</span>
+                    <i class="fas fa-chevron-down job-chevron ${open ? 'open' : ''}"></i>
+                </div>
+            </div>
+            <div class="job-body ${open ? '' : 'hidden'}" id="job-body-${idx}">
+                ${open ? renderJobBody(j, idx) : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderJobBody(job, idx) {
+    const grades = [...(job.grades || [])].sort((a, b) => a.grade - b.grade);
+    const gradeRows = grades.map(g => `
+        <tr><td>${g.grade}</td><td>${escapeHtml(g.label || g.name || '')}</td><td>${escapeHtml(g.name || '')}</td><td style="text-align:right;">${(Number(g.salary) || 0).toLocaleString('de-DE')} $</td></tr>
+    `).join('');
+    const gradeOptions = grades.map(g => `<option value="${g.grade}">${escapeHtml(g.label || g.name)} (${g.grade})</option>`).join('');
+    const onlinePlayers = (currentServerData.players || []);
+    const hireOptions = onlinePlayers.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (ID ${p.id})</option>`).join('');
+
+    return `
+        <h4 class="job-sub">Grades</h4>
+        <div class="table-responsive">
+            <table class="player-table">
+                <thead><tr><th style="width:60px;">Grade</th><th>Label</th><th>Name</th><th style="text-align:right;">Gehalt</th></tr></thead>
+                <tbody>${gradeRows || '<tr><td colspan="4" class="empty-state">Keine Grades</td></tr>'}</tbody>
+            </table>
+        </div>
+        <h4 class="job-sub">Mitarbeiter einstellen</h4>
+        <div class="hire-row">
+            <select id="hire-player-${idx}" class="select-input">${hireOptions || '<option value="">Keine Spieler online</option>'}</select>
+            <select id="hire-grade-${idx}" class="select-input">${gradeOptions}</select>
+            <button type="button" class="small-btn" onclick="hireToJob('${safeAttr(job.name)}', ${idx})"><i class="fas fa-user-plus"></i> Einstellen</button>
+        </div>
+        <h4 class="job-sub">Mitarbeiter</h4>
+        <div id="job-employees-${idx}" class="job-employees"><div class="empty-state">Lade Mitarbeiter…</div></div>
+    `;
+}
+
+function toggleJobCard(jobName) {
+    if (expandedJobs.has(jobName)) expandedJobs.delete(jobName);
+    else expandedJobs.add(jobName);
+    renderJobsManage();
+    if (expandedJobs.has(jobName)) loadJobEmployees(jobName);
+}
+
+async function loadJobEmployees(jobName) {
+    const idx = jobsManageCache.findIndex(j => j.name === jobName);
+    if (idx < 0) return;
+    if (jobEmployeesCache[jobName]) { renderJobEmployees(jobName); return; }
+    const employees = await requestJobEmployees(jobName);
+    const el = document.getElementById('job-employees-' + idx);
+    if (employees === null) {
+        if (el) el.innerHTML = '<div class="empty-state" style="color:#ffaa00;">Game-Server nicht erreichbar.</div>';
+        return;
+    }
+    jobEmployeesCache[jobName] = employees;
+    renderJobEmployees(jobName);
+}
+
+async function requestJobEmployees(jobName) {
+    try {
+        const res = await fetchWithAuth('/api/fivem/job_employees_request', { method: 'POST', body: JSON.stringify({ job: jobName }) });
+        if (!res) return null;
+        const data = await res.json();
+        const requestId = data.request_id;
+        if (!requestId) return null;
+        for (let i = 0; i < 16; i++) {
+            await new Promise(r => setTimeout(r, 1000));
+            const poll = await fetchWithAuth('/api/fivem/job_employees?id=' + encodeURIComponent(requestId));
+            if (!poll) return null;
+            const result = await poll.json();
+            if (result.status === 'ready') return (result.data && result.data.employees) || [];
+        }
+    } catch (e) { console.warn('job employees', e); }
+    return null;
+}
+
+function renderJobEmployees(jobName) {
+    const idx = jobsManageCache.findIndex(j => j.name === jobName);
+    if (idx < 0) return;
+    const el = document.getElementById('job-employees-' + idx);
+    if (!el) return;
+    const grades = [...(jobsManageCache[idx].grades || [])].sort((a, b) => a.grade - b.grade);
+    const employees = jobEmployeesCache[jobName] || [];
+    if (employees.length === 0) { el.innerHTML = '<div class="empty-state">Keine Mitarbeiter.</div>'; return; }
+    el.innerHTML = employees.map(emp => {
+        const gradeOptions = grades.map(g => `<option value="${g.grade}" ${g.grade === emp.grade ? 'selected' : ''}>${escapeHtml(g.label || g.name)} (${g.grade})</option>`).join('');
+        return `
+        <div class="employee-row">
+            <div class="employee-info">
+                <span class="employee-dot ${emp.online ? 'online' : 'offline'}"></span>
+                <span class="employee-name">${escapeHtml(emp.name || 'Unbekannt')}</span>
+                <span class="employee-id">${escapeHtml(emp.identifier || '')}</span>
+            </div>
+            <div class="employee-actions">
+                <select class="select-input" title="Rang ändern" onchange="setEmployeeGrade('${safeAttr(jobName)}','${safeAttr(emp.identifier)}', ${emp.server_id != null ? emp.server_id : 'null'}, this.value)">${gradeOptions}</select>
+                <button type="button" class="row-action ban" title="Feuern" onclick="fireEmployee('${safeAttr(jobName)}','${safeAttr(emp.identifier)}', ${emp.server_id != null ? emp.server_id : 'null'})"><i class="fas fa-user-slash"></i></button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function postJobAction(payload) {
+    try {
+        const res = await fetchWithAuth('/api/fivem/job_action', { method: 'POST', body: JSON.stringify(payload) });
+        return !!res;
+    } catch (e) { showToast('Fehler: ' + e.message, 'error'); return false; }
+}
+
+async function setEmployeeGrade(jobName, identifier, serverId, gradeVal) {
+    const grade = parseInt(gradeVal);
+    const ok = await postJobAction({ action: 'promote', job: jobName, grade, id: serverId, identifier });
+    if (ok) {
+        showToast('Rang gesetzt – wird übernommen');
+        const emp = (jobEmployeesCache[jobName] || []).find(e => e.identifier === identifier);
+        if (emp) emp.grade = grade;
+    }
+}
+
+async function fireEmployee(jobName, identifier, serverId) {
+    const emp = (jobEmployeesCache[jobName] || []).find(e => e.identifier === identifier);
+    const name = emp ? emp.name : 'diesen Mitarbeiter';
+    if (!confirm(`${name} wirklich feuern (→ unemployed)?`)) return;
+    const ok = await postJobAction({ action: 'fire', job: 'unemployed', grade: 0, id: serverId, identifier });
+    if (ok) {
+        showToast('Mitarbeiter gefeuert');
+        jobEmployeesCache[jobName] = (jobEmployeesCache[jobName] || []).filter(e => e.identifier !== identifier);
+        renderJobEmployees(jobName);
+    }
+}
+
+async function hireToJob(jobName, idx) {
+    const playerSel = document.getElementById('hire-player-' + idx);
+    const gradeSel = document.getElementById('hire-grade-' + idx);
+    if (!playerSel || !playerSel.value) { showToast('Bitte einen Online-Spieler wählen', 'error'); return; }
+    const pid = parseInt(playerSel.value);
+    const grade = parseInt(gradeSel ? gradeSel.value : '0') || 0;
+    const player = (currentServerData.players || []).find(p => p.id == pid);
+    const identifier = player ? ((player.identifiers || []).find(i => i.startsWith('license:')) || (player.identifiers || [])[0]) : null;
+    const ok = await postJobAction({ action: 'hire', job: jobName, grade, id: pid, identifier });
+    if (ok) {
+        showToast('Mitarbeiter eingestellt – wird übernommen');
+        setTimeout(() => { delete jobEmployeesCache[jobName]; loadJobEmployees(jobName); }, 1500);
     }
 }
 

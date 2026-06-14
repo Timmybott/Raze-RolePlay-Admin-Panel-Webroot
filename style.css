@@ -1527,6 +1527,73 @@ input:checked + .slider:before { transform: translateX(22px); background-color: 
     word-break: break-all;
 }
 
+/* ===================== FiveM Jobs ===================== */
+.jobs-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+
+.job-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.job-card:hover { border-color: var(--border-strong); }
+
+.job-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.job-titles { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.job-label { font-weight: 600; color: #fff; font-size: 1rem; }
+.job-name { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); }
+
+.job-head-right { display: flex; align-items: center; gap: 14px; }
+.job-grade-count { font-size: 0.78rem; color: var(--text-muted); }
+.job-chevron { color: var(--text-muted); transition: transform 0.25s var(--ease); font-size: 0.8rem; }
+.job-chevron.open { transform: rotate(180deg); color: var(--primary); }
+
+.job-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+
+.job-sub {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin: 18px 0 8px;
+}
+
+.hire-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.hire-row .select-input { flex: 1; min-width: 140px; }
+
+.job-employees { display: flex; flex-direction: column; gap: 6px; }
+
+.employee-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    padding: 9px 12px;
+}
+
+.employee-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.employee-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.employee-dot.online { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.employee-dot.offline { background: #666; }
+.employee-name { font-weight: 600; color: #fff; }
+.employee-id { font-family: monospace; font-size: 0.74rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.employee-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.employee-actions .select-input { min-width: 150px; }
+
 /* ===================== Utilities ===================== */
 .hidden { display: none !important; }
 .perm-hidden { display: none !important; }
