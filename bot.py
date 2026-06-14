@@ -3,8 +3,11 @@ from discord.ext import commands, tasks
 import asyncio
 import json
 import os
+import sys
 import time
+import base64
 import hashlib
+import hmac
 import secrets
 from collections import deque
 from aiohttp import web
@@ -17,6 +20,63 @@ CONFIG_FILE = os.path.join(BASE_DIR, 'config.json')
 FIVEM_CONFIG_FILE = os.path.join(BASE_DIR, 'fivem_config.json')
 CONFIG = {}
 FIVEM_CONFIG = {}
+
+# --- TOKEN-VERSCHLÜSSELUNG ---
+# Der Discord-Token wird NICHT im Klartext in config.json gespeichert, sondern als
+# "enc:v1:..."-Blob. Beim Laden wird er im Code entschlüsselt.
+#
+# Schlüssel: Für echten Schutz die Umgebungsvariable RAZE_TOKEN_KEY setzen
+# (dann reichen config.json + bot.py allein NICHT zum Auslesen). Ohne gesetzte
+# Variable wird ein eingebauter Standardschlüssel benutzt -> schützt vor
+# versehentlichem Klartext-Leak (Backups, Screenshots, Weitergabe der config.json),
+# aber nicht vor jemandem, der zusätzlich den Bot-Code hat.
+TOKEN_PREFIX = "enc:v1:"
+_DEFAULT_TOKEN_KEY = "RazeRoleplay::token-vault::v1"
+
+def _token_secret():
+    return (os.environ.get("RAZE_TOKEN_KEY") or _DEFAULT_TOKEN_KEY).encode("utf-8")
+
+def _derive_key(salt):
+    return hashlib.pbkdf2_hmac("sha256", _token_secret(), salt, 200_000)
+
+def _keystream(key, length):
+    out = bytearray()
+    counter = 0
+    while len(out) < length:
+        out += hashlib.sha256(key + counter.to_bytes(4, "big")).digest()
+        counter += 1
+    return bytes(out[:length])
+
+def is_token_encrypted(value):
+    return isinstance(value, str) and value.startswith(TOKEN_PREFIX)
+
+def encrypt_token(plaintext):
+    data = plaintext.encode("utf-8")
+    salt = secrets.token_bytes(16)
+    key = _derive_key(salt)
+    cipher = bytes(b ^ k for b, k in zip(data, _keystream(key, len(data))))
+    mac = hmac.new(key, salt + cipher, hashlib.sha256).digest()[:16]
+    blob = base64.urlsafe_b64encode(salt + cipher + mac).decode("ascii")
+    return TOKEN_PREFIX + blob
+
+def decrypt_token(value):
+    """Entschlüsselt einen 'enc:v1:'-Token. Klartext wird unverändert zurückgegeben
+    (Abwärtskompatibilität)."""
+    if not is_token_encrypted(value):
+        return value
+    raw = base64.urlsafe_b64decode(value[len(TOKEN_PREFIX):].encode("ascii"))
+    salt, cipher, mac = raw[:16], raw[16:-16], raw[-16:]
+    key = _derive_key(salt)
+    if not hmac.compare_digest(mac, hmac.new(key, salt + cipher, hashlib.sha256).digest()[:16]):
+        raise ValueError("Token-Entschlüsselung fehlgeschlagen (falscher RAZE_TOKEN_KEY?).")
+    return bytes(c ^ k for c, k in zip(cipher, _keystream(key, len(cipher)))).decode("utf-8")
+
+def get_bot_token():
+    try:
+        return decrypt_token(CONFIG.get("TOKEN", ""))
+    except Exception as e:
+        print(f"FEHLER beim Entschlüsseln des Bot-Tokens: {e}")
+        return ""
 
 def normalize_config_types():
     """Stellt sicher, dass IDs aus JSON/Panel als int vorliegen, wo der Bot ints erwartet.
@@ -54,6 +114,16 @@ def load_config():
             CONFIG = json.load(f)
 
         normalize_config_types()
+
+        # Token automatisch verschlüsseln, falls er noch im Klartext vorliegt
+        token = CONFIG.get("TOKEN")
+        if token and not is_token_encrypted(token):
+            try:
+                CONFIG["TOKEN"] = encrypt_token(token)
+                save_config()
+                print("Bot-Token war im Klartext und wurde verschlüsselt in config.json gespeichert.")
+            except Exception as e:
+                print(f"Konnte Token nicht verschlüsseln: {e}")
 
         print("Konfiguration (Discord) erfolgreich geladen.")
     except Exception as e:
@@ -226,9 +296,9 @@ async def handle_config_get(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     config_response = serialize_config(CONFIG)
-    # Bot-Token nur für Admins mit entsprechender Berechtigung ausliefern
-    if not has_permission(current_user, "manage_general"):
-        config_response["TOKEN"] = ""
+    # Bot-Token niemals an den Browser senden (weder Klartext noch verschlüsselt).
+    # Das Feld bleibt leer; leer lassen = bestehenden Token behalten.
+    config_response["TOKEN"] = ""
     return web.json_response(config_response)
 
 async def handle_config_post(request):
@@ -249,9 +319,13 @@ async def handle_config_post(request):
         old_ticket_channel_id = CONFIG.get("TICKET_CHANNEL_ID")
         new_ticket_channel_id = new_config.get("TICKET_CHANNEL_ID")
 
-        # Leerer/redigierter Token darf den echten nie überschreiben
-        if not new_config.get("TOKEN"):
+        # Token-Handling: leer = bestehenden behalten; neuer Klartext-Token wird
+        # vor dem Speichern verschlüsselt, damit nie Klartext in config.json landet
+        incoming_token = new_config.get("TOKEN")
+        if not incoming_token:
             new_config.pop("TOKEN", None)
+        elif not is_token_encrypted(incoming_token):
+            new_config["TOKEN"] = encrypt_token(incoming_token)
         # Überbleibsel des Login-Formulars nicht in die Config übernehmen
         new_config.pop("username", None)
         new_config.pop("password", None)
@@ -1501,4 +1575,25 @@ async def on_message(message):
     await bot.process_commands(message)
 
 if __name__ == "__main__":
-    bot.run(CONFIG.get("TOKEN"))
+    # CLI-Helfer: verschlüsselten Token für config.json erzeugen
+    #   python bot.py --encrypt-token            (interaktiv)
+    #   python bot.py --encrypt-token <token>    (direkt)
+    if "--encrypt-token" in sys.argv:
+        idx = sys.argv.index("--encrypt-token")
+        plain = sys.argv[idx + 1] if len(sys.argv) > idx + 1 else input("Discord-Token: ").strip()
+        if not plain:
+            print("Kein Token angegeben.")
+        else:
+            if os.environ.get("RAZE_TOKEN_KEY"):
+                print("(Verschlüsselt mit RAZE_TOKEN_KEY aus der Umgebung.)")
+            else:
+                print("(Verschlüsselt mit Standardschlüssel - für mehr Schutz RAZE_TOKEN_KEY setzen.)")
+            print("\nFüge diesen Wert als \"TOKEN\" in config.json ein:\n")
+            print(encrypt_token(plain))
+        sys.exit(0)
+
+    token = get_bot_token()
+    if not token:
+        print("FEHLER: Kein gültiger Bot-Token konfiguriert (TOKEN in config.json prüfen).")
+    else:
+        bot.run(token)

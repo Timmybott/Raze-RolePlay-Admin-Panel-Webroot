@@ -238,9 +238,13 @@
                             <div class="form-group">
                                 <label>Bot Token</label>
                                 <div class="input-wrapper">
-                                    <input type="password" name="TOKEN" id="TOKEN" placeholder="Discord Bot Token">
+                                    <input type="password" name="TOKEN" id="TOKEN"
+                                        placeholder="•••• verschlüsselt gespeichert – leer lassen zum Beibehalten"
+                                        autocomplete="off">
                                     <i class="fas fa-eye-slash toggle-password"></i>
                                 </div>
+                                <small class="text-muted">Wird verschlüsselt in config.json abgelegt. Feld leer lassen,
+                                    um den bestehenden Token zu behalten.</small>
                             </div>
                             <div class="form-group">
                                 <label>Guild ID (Server ID)</label>
