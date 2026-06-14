@@ -762,7 +762,7 @@
                                 <input type="text" id="jobs-search" class="search-input"
                                     placeholder="Job suchen (Name / Label)...">
                             </div>
-                            <button type="button" class="small-btn" onclick="loadJobsManage(true)">
+                            <button type="button" class="btn-refresh" onclick="loadJobsManage(true)">
                                 <i class="fas fa-sync-alt"></i> Aktualisieren</button>
                         </div>
                         <div id="jobs-manage-list" class="jobs-list">
@@ -771,18 +771,31 @@
                     </div>
                 </div>
 
-                <!-- FiveM Jobs: Creator (Platzhalter, Phase 2) -->
+                <!-- FiveM Jobs: Creator (Phase 2) -->
                 <div id="section-jobs-create" class="config-section fade-in">
                     <div class="section-header">
                         <h3>Jobs erstellen</h3>
-                        <p>Vollständiger ESX-Job-Creator (Grades, Gehälter, Locations).</p>
+                        <p>ESX-Jobs anlegen & bearbeiten: Grades, Gehälter und Locations.</p>
                     </div>
+
                     <div class="card full-width">
-                        <div class="empty-state" style="padding:50px 20px;">
-                            <i class="fas fa-tools" style="font-size:2rem; color:#444; display:block; margin-bottom:14px;"></i>
-                            Der Job-Creator wird in Phase 2 ergänzt (neue Resource <code>raze_jobscreator</code> +
-                            <code>raze_job_data</code>-Tabelle). Phase 1 (Jobs-Verwaltung) ist hier links unter „Jobs"
-                            bereits nutzbar.
+                        <div class="list-toolbar">
+                            <div class="search-wrapper" style="flex:1; min-width:200px;">
+                                <i class="fas fa-search search-icon"></i>
+                                <input type="text" id="jobs-create-search" class="search-input"
+                                    placeholder="Job suchen...">
+                            </div>
+                            <button type="button" class="btn-refresh" onclick="loadJobsCreate(true)">
+                                <i class="fas fa-sync-alt"></i> Aktualisieren</button>
+                            <button type="button" class="btn-hire" onclick="openJobEditor()">
+                                <i class="fas fa-plus"></i> Neuer Job</button>
+                        </div>
+                        <p class="description-text">
+                            <i class="fas fa-info-circle"></i> Tipp: Im Spiel <code>/setjobloc</code> ausführen, dann im
+                            Editor „Aktuelle Position übernehmen" klicken, um Koordinaten einer Location zu setzen.
+                        </p>
+                        <div id="jobs-create-list" class="jobs-list">
+                            <div class="empty-state">Lade Jobs…</div>
                         </div>
                     </div>
                 </div>
@@ -893,6 +906,25 @@
             </div>
             <button type="button" id="moderation-confirm" class="save-btn"
                 style="width:100%; justify-content:center;" onclick="submitModeration()">Bestätigen</button>
+        </div>
+    </div>
+
+    <!-- JOB EDITOR MODAL (Creator) -->
+    <div id="job-editor-modal" class="modal hidden">
+        <div class="modal-content card" style="max-width: 760px;">
+            <span class="close-modal" onclick="closeJobEditor()">&times;</span>
+            <div class="modal-header">
+                <h2 id="job-editor-title"><i class="fas fa-briefcase"></i> Neuer Job</h2>
+            </div>
+            <div id="job-editor-body">
+                <!-- dynamisch von JS gerendert -->
+            </div>
+            <div class="job-editor-actions">
+                <button type="button" id="job-editor-delete" class="row-action ban" style="display:none;"
+                    title="Job löschen" onclick="deleteJobFromEditor()"><i class="fas fa-trash"></i> Löschen</button>
+                <button type="button" class="save-btn btn-modern-primary" style="flex:1; justify-content:center;"
+                    onclick="saveJobFromEditor()"><i class="fas fa-save"></i> Job speichern</button>
+            </div>
         </div>
     </div>
 

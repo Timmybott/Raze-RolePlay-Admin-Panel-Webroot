@@ -1572,6 +1572,74 @@ input:checked + .slider:before { transform: translateX(22px); background-color: 
 .hire-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .hire-row .select-input { flex: 1; min-width: 140px; }
 
+/* Aktualisieren-Button (Refresh) */
+.btn-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    color: var(--text-soft);
+    padding: 9px 16px;
+    border-radius: var(--radius-xs);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.18s;
+}
+
+.btn-refresh:hover { background: rgba(255, 255, 255, 0.08); color: #fff; border-color: var(--border-strong); }
+.btn-refresh i { transition: transform 0.5s var(--ease); }
+.btn-refresh:hover i { transform: rotate(-180deg); color: var(--primary); }
+
+/* Einstellen-Button (Hire) */
+.btn-hire {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: var(--radius-xs);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(255, 78, 0, 0.28);
+    transition: background 0.18s, transform 0.15s, box-shadow 0.18s;
+}
+
+.btn-hire:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(255, 78, 0, 0.42); }
+.btn-hire:active { transform: translateY(0); }
+
+/* Job-Editor (Creator-Modal) */
+.job-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+}
+
+.job-editor-actions .row-action.ban {
+    width: auto;
+    padding: 0 16px;
+    gap: 8px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.je-grade-row { gap: 8px; }
+.je-grade-row input { min-width: 0; }
+.je-loc-row .row-body { grid-template-columns: repeat(4, 1fr); }
+.je-loc-row textarea { font-family: monospace; font-size: 0.82rem; }
+#je-grades { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+#je-locations { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+
 .job-employees { display: flex; flex-direction: column; gap: 6px; }
 
 .employee-row {

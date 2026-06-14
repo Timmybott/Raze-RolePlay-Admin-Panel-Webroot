@@ -456,7 +456,7 @@ function setupChangeListeners() {
 
         // Konsolen-, Such- und Kartenfilter-Felder sind keine Config-Werte
 
-        if (['console-input', 'all-player-search', 'map-filter-search', 'map-filter-job', 'jobs-search'].includes(input.id)) return;
+        if (['console-input', 'all-player-search', 'map-filter-search', 'map-filter-job', 'jobs-search', 'jobs-create-search'].includes(input.id)) return;
 
         // Exclude some if needed, but generally correct
 
@@ -1617,6 +1617,12 @@ function setupNavigation() {
 
             }
 
+            if (sectionId === 'jobs-create') {
+
+                loadJobsCreate();
+
+            }
+
             // Live-Karte erst beim ersten Öffnen initialisieren (Leaflet braucht sichtbaren Container)
 
             if (sectionId === 'fivem-map') {
@@ -1999,6 +2005,8 @@ async function unbanPlayer(banId) {
 // --- FIVEM JOBS: VERWALTUNG (Phase 1) ---
 let jobsManageCache = [];
 let jobEmployeesCache = {}; // jobName -> [employees]
+const jobEmployeesLoading = new Set(); // läuft gerade eine Abfrage?
+const jobEmployeesError = {}; // jobName -> Fehlertext (statt endlosem "Lade…")
 const expandedJobs = new Set();
 
 async function loadJobsManage(force) {
@@ -2014,7 +2022,7 @@ async function loadJobsManage(force) {
             if (!res) return;
             const jobs = await res.json();
             jobsManageCache = Array.isArray(jobs) ? jobs : [];
-            if (force) jobEmployeesCache = {}; // bei manuellem Refresh Mitarbeiter neu laden
+            if (force) { jobEmployeesCache = {}; Object.keys(jobEmployeesError).forEach(k => delete jobEmployeesError[k]); } // bei manuellem Refresh neu laden
         } catch (e) {
             container.innerHTML = `<div class="empty-state" style="color:#ff5468;">Fehler: ${escapeHtml(e.message)}</div>`;
             return;
@@ -2054,6 +2062,13 @@ function renderJobsManage() {
             </div>
         </div>`;
     }).join('');
+
+    // Mitarbeiter für aufgeklappte Jobs sicherstellen (verhindert endloses "Lade…"
+    // nach einem Neu-Rendern, z.B. durch Suche oder Aufklappen eines anderen Jobs)
+    expandedJobs.forEach(jobName => {
+        if (jobEmployeesCache[jobName]) renderJobEmployees(jobName);
+        else ensureJobEmployees(jobName);
+    });
 }
 
 function renderJobBody(job, idx) {
@@ -2077,7 +2092,7 @@ function renderJobBody(job, idx) {
         <div class="hire-row">
             <select id="hire-player-${idx}" class="select-input">${hireOptions || '<option value="">Keine Spieler online</option>'}</select>
             <select id="hire-grade-${idx}" class="select-input">${gradeOptions}</select>
-            <button type="button" class="small-btn" onclick="hireToJob('${safeAttr(job.name)}', ${idx})"><i class="fas fa-user-plus"></i> Einstellen</button>
+            <button type="button" class="btn-hire" onclick="hireToJob('${safeAttr(job.name)}', ${idx})"><i class="fas fa-user-plus"></i> Einstellen</button>
         </div>
         <h4 class="job-sub">Mitarbeiter</h4>
         <div id="job-employees-${idx}" class="job-employees"><div class="empty-state">Lade Mitarbeiter…</div></div>
@@ -2087,22 +2102,47 @@ function renderJobBody(job, idx) {
 function toggleJobCard(jobName) {
     if (expandedJobs.has(jobName)) expandedJobs.delete(jobName);
     else expandedJobs.add(jobName);
-    renderJobsManage();
-    if (expandedJobs.has(jobName)) loadJobEmployees(jobName);
+    renderJobsManage(); // kümmert sich auch um das Laden der Mitarbeiter
 }
 
-async function loadJobEmployees(jobName) {
+// Stößt die Mitarbeiter-Abfrage genau EINMAL an und zeigt danach Daten/Fehler
+function ensureJobEmployees(jobName) {
     const idx = jobsManageCache.findIndex(j => j.name === jobName);
     if (idx < 0) return;
-    if (jobEmployeesCache[jobName]) { renderJobEmployees(jobName); return; }
-    const employees = await requestJobEmployees(jobName);
     const el = document.getElementById('job-employees-' + idx);
-    if (employees === null) {
-        if (el) el.innerHTML = '<div class="empty-state" style="color:#ffaa00;">Game-Server nicht erreichbar.</div>';
+
+    if (jobEmployeesError[jobName]) {
+        if (el) el.innerHTML = `<div class="empty-state" style="color:#ffaa00;">${escapeHtml(jobEmployeesError[jobName])}
+            <br><button type="button" class="btn-refresh" style="margin-top:10px;" onclick="retryJobEmployees('${safeAttr(jobName)}')"><i class="fas fa-sync-alt"></i> Erneut versuchen</button></div>`;
         return;
     }
-    jobEmployeesCache[jobName] = employees;
-    renderJobEmployees(jobName);
+    if (jobEmployeesLoading.has(jobName)) {
+        if (el) el.innerHTML = '<div class="empty-state">Lade Mitarbeiter…</div>';
+        return;
+    }
+    jobEmployeesLoading.add(jobName);
+    if (el) el.innerHTML = '<div class="empty-state">Lade Mitarbeiter…</div>';
+
+    requestJobEmployees(jobName).then(employees => {
+        jobEmployeesLoading.delete(jobName);
+        if (employees === null) {
+            jobEmployeesError[jobName] = 'Keine Antwort vom Game-Server (läuft die Resource raze_adminpanel?).';
+        } else {
+            delete jobEmployeesError[jobName];
+            jobEmployeesCache[jobName] = employees;
+        }
+        // nur rendern, wenn der Job noch aufgeklappt ist
+        if (expandedJobs.has(jobName)) {
+            if (jobEmployeesCache[jobName]) renderJobEmployees(jobName);
+            else ensureJobEmployees(jobName); // zeigt den Fehler-Block
+        }
+    });
+}
+
+function retryJobEmployees(jobName) {
+    delete jobEmployeesError[jobName];
+    delete jobEmployeesCache[jobName];
+    ensureJobEmployees(jobName);
 }
 
 async function requestJobEmployees(jobName) {
@@ -2112,8 +2152,9 @@ async function requestJobEmployees(jobName) {
         const data = await res.json();
         const requestId = data.request_id;
         if (!requestId) return null;
+        // Schnell pollen (500ms), bis ~8s; Game-Server pollt selbst alle 2s
         for (let i = 0; i < 16; i++) {
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 500));
             const poll = await fetchWithAuth('/api/fivem/job_employees?id=' + encodeURIComponent(requestId));
             if (!poll) return null;
             const result = await poll.json();
@@ -2188,7 +2229,305 @@ async function hireToJob(jobName, idx) {
     const ok = await postJobAction({ action: 'hire', job: jobName, grade, id: pid, identifier });
     if (ok) {
         showToast('Mitarbeiter eingestellt – wird übernommen');
-        setTimeout(() => { delete jobEmployeesCache[jobName]; loadJobEmployees(jobName); }, 1500);
+        setTimeout(() => { delete jobEmployeesCache[jobName]; delete jobEmployeesError[jobName]; ensureJobEmployees(jobName); }, 1500);
+    }
+}
+
+// --- FIVEM JOBS: CREATOR (Phase 2) ---
+const LOCATION_TYPES = [
+    { value: 'storage', label: 'Item-Lager (ox_inventory Stash)' },
+    { value: 'armory', label: 'Waffenlager (ox_inventory Stash)' },
+    { value: 'garage', label: 'Garage (Fahrzeuge ein-/ausparken)' },
+    { value: 'vehicleshop', label: 'Fahrzeug-Shop' },
+    { value: 'cloakroom', label: 'Umkleide' }
+];
+const F5_FUNCTIONS = [
+    { key: 'cuff', label: 'Fesseln' },
+    { key: 'uncuff', label: 'Entfesseln' },
+    { key: 'drag', label: 'Draggen' },
+    { key: 'vehicle', label: 'In/aus Auto setzen' },
+    { key: 'search', label: 'Durchsuchen' },
+    { key: 'idcard', label: 'Ausweis ansehen' },
+    { key: 'licenses', label: 'Lizenzen ansehen' }
+];
+
+let jobsCreateCache = [];   // ESX-Jobs (name,label,grades)
+let jobDataCache = {};      // job_name -> extra (locations, f5, civ_access)
+
+async function loadJobsCreate(force) {
+    const container = document.getElementById('jobs-create-list');
+    if (!container) return;
+    const search = document.getElementById('jobs-create-search');
+    if (search && !search._bound) { search.oninput = () => renderJobsCreateList(); search._bound = true; }
+
+    if (force || jobsCreateCache.length === 0) {
+        container.innerHTML = '<div class="empty-state">Lade Jobs…</div>';
+        try {
+            const [jobsRes, dataRes] = await Promise.all([
+                fetchWithAuth('/api/fivem/jobs'),
+                fetchWithAuth('/api/fivem/job_data').catch(() => null)
+            ]);
+            if (!jobsRes) return;
+            jobsCreateCache = await jobsRes.json();
+            jobDataCache = dataRes ? (await dataRes.json()) : {};
+        } catch (e) {
+            container.innerHTML = `<div class="empty-state" style="color:#ff5468;">Fehler: ${escapeHtml(e.message)}</div>`;
+            return;
+        }
+    }
+    renderJobsCreateList();
+}
+
+function renderJobsCreateList() {
+    const container = document.getElementById('jobs-create-list');
+    if (!container) return;
+    const q = (document.getElementById('jobs-create-search')?.value || '').trim().toLowerCase();
+    let jobs = jobsCreateCache.filter(j => j.name !== 'unemployed');
+    if (q) jobs = jobs.filter(j => (j.label || '').toLowerCase().includes(q) || (j.name || '').toLowerCase().includes(q));
+    if (jobs.length === 0) {
+        container.innerHTML = '<div class="empty-state">Keine Jobs. Lege oben einen neuen Job an.</div>';
+        return;
+    }
+    container.innerHTML = jobs.map(j => {
+        const extra = jobDataCache[j.name] || {};
+        const locCount = (extra.locations || []).length;
+        return `
+        <div class="job-card">
+            <div class="job-head" style="cursor:default;">
+                <div class="job-titles">
+                    <span class="job-label">${escapeHtml(j.label || j.name)}</span>
+                    <span class="job-name">${escapeHtml(j.name)}</span>
+                </div>
+                <div class="job-head-right">
+                    <span class="job-grade-count">${(j.grades || []).length} Grades · ${locCount} Location${locCount === 1 ? '' : 's'}</span>
+                    <button type="button" class="btn-refresh" onclick="openJobEditor('${safeAttr(j.name)}')"><i class="fas fa-edit"></i> Bearbeiten</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function openJobEditor(name) {
+    const isEdit = !!name;
+    const job = isEdit ? jobsCreateCache.find(j => j.name === name) : null;
+    const extra = (isEdit && jobDataCache[name]) ? jobDataCache[name] : {};
+    document.getElementById('job-editor-title').innerHTML = isEdit
+        ? `<i class="fas fa-edit"></i> Job bearbeiten: ${escapeHtml(name)}`
+        : '<i class="fas fa-briefcase"></i> Neuer Job';
+    document.getElementById('job-editor-delete').style.display = isEdit ? '' : 'none';
+
+    const f5 = extra.f5 || {};
+    const f5Html = F5_FUNCTIONS.map(f =>
+        `<label class="perm-label" style="flex:1; min-width:150px;"><span>${f.label}</span>
+            <input type="checkbox" class="je-f5" data-f5="${f.key}" ${f5[f.key] ? 'checked' : ''}></label>`
+    ).join('');
+
+    document.getElementById('job-editor-body').innerHTML = `
+        <div class="form-row">
+            <div class="form-group">
+                <label>Job-Name (Schlüssel, a-z/0-9/_)</label>
+                <input type="text" id="je-name" value="${isEdit ? escapeHtml(name) : ''}" ${isEdit ? 'disabled' : ''} placeholder="z.B. mechanic">
+            </div>
+            <div class="form-group">
+                <label>Label (Anzeigename)</label>
+                <input type="text" id="je-label" value="${escapeHtml(job ? (job.label || '') : '')}" placeholder="z.B. Mechaniker">
+            </div>
+        </div>
+
+        <h4 class="job-sub">Grades / Ränge</h4>
+        <div id="je-grades"></div>
+        <button type="button" class="btn-refresh" onclick="addGradeRow()"><i class="fas fa-plus"></i> Grade</button>
+
+        <h4 class="job-sub">Locations</h4>
+        <div id="je-locations"></div>
+        <button type="button" class="btn-refresh" onclick="addLocationRow()"><i class="fas fa-plus"></i> Location</button>
+
+        <h4 class="job-sub">F5-Menü Funktionen (Phase 3)</h4>
+        <div class="perm-grid" style="flex-direction:row; flex-wrap:wrap;">${f5Html}</div>
+        <label class="perm-label" style="margin-top:8px;"><span>Zivilisten (ohne Job) dürfen das F5-Menü nutzen</span>
+            <input type="checkbox" id="je-civ" ${extra.civ_access ? 'checked' : ''}></label>
+    `;
+
+    // Grades befüllen
+    const grades = (job && job.grades && job.grades.length) ? job.grades : [{ grade: 0, name: 'recruit', label: 'Mitarbeiter', salary: 0 }];
+    grades.forEach(g => addGradeRow(g));
+    // Locations befüllen
+    (extra.locations || []).forEach(l => addLocationRow(l));
+
+    document.getElementById('job-editor-modal').classList.remove('hidden');
+}
+
+function closeJobEditor() {
+    document.getElementById('job-editor-modal').classList.add('hidden');
+}
+
+function addGradeRow(g) {
+    g = g || { grade: '', name: '', label: '', salary: 0 };
+    const wrap = document.getElementById('je-grades');
+    const row = document.createElement('div');
+    row.className = 'je-grade-row builder-row';
+    row.innerHTML = `
+        <input type="number" class="je-g-grade" placeholder="#" value="${g.grade !== '' ? g.grade : ''}" style="width:64px;" title="Grade-Nummer">
+        <input type="text" class="je-g-name" placeholder="name (key)" value="${escapeHtml(g.name || '')}">
+        <input type="text" class="je-g-label" placeholder="Label" value="${escapeHtml(g.label || '')}">
+        <input type="number" class="je-g-salary" placeholder="Gehalt" value="${Number(g.salary) || 0}" style="width:110px;" title="Gehalt">
+        <button type="button" class="del-btn" onclick="this.closest('.je-grade-row').remove()"><i class="fas fa-trash"></i></button>
+    `;
+    wrap.appendChild(row);
+}
+
+function locationExtraFields(l) {
+    const t = l.type || 'storage';
+    if (t === 'storage' || t === 'armory') {
+        return `
+        <div class="form-group-small"><label>Slots</label><input type="number" class="je-l-slots" value="${Number(l.slots) || 50}"></div>
+        <div class="form-group-small"><label>Max. Gewicht (kg)</label><input type="number" class="je-l-weight" value="${Number(l.weight) || 100}"></div>`;
+    }
+    if (t === 'garage' || t === 'vehicleshop') {
+        const vehText = (l.vehicles || []).map(v => `${v.model},${v.label || v.model}${v.price != null ? ',' + v.price : ''}`).join('\n');
+        return `
+        <div class="form-group-small full"><label>Fahrzeuge (eine Zeile je Fahrzeug: <code>model,Label,Preis</code>)</label>
+            <textarea class="je-l-vehicles" rows="3" placeholder="adder,Adder,250000">${escapeHtml(vehText)}</textarea></div>`;
+    }
+    return '';
+}
+
+function addLocationRow(l) {
+    l = l || { type: 'storage', label: '', coords: {}, job_only: true };
+    const wrap = document.getElementById('je-locations');
+    const row = document.createElement('div');
+    row.className = 'je-loc-row builder-card';
+    const c = l.coords || {};
+    const typeOpts = LOCATION_TYPES.map(t => `<option value="${t.value}" ${t.value === (l.type || 'storage') ? 'selected' : ''}>${t.label}</option>`).join('');
+    row.innerHTML = `
+        <div class="row-header">
+            <select class="je-l-type select-input" onchange="onLocTypeChange(this)">${typeOpts}</select>
+            <input type="text" class="je-l-label" placeholder="Bezeichnung (z.B. Hauptlager)" value="${escapeHtml(l.label || '')}">
+            <button type="button" class="del-btn" onclick="this.closest('.je-loc-row').remove()"><i class="fas fa-trash"></i></button>
+        </div>
+        <div class="row-body">
+            <div class="form-group-small"><label>X</label><input type="number" step="0.01" class="je-l-x" value="${c.x != null ? c.x : ''}"></div>
+            <div class="form-group-small"><label>Y</label><input type="number" step="0.01" class="je-l-y" value="${c.y != null ? c.y : ''}"></div>
+            <div class="form-group-small"><label>Z</label><input type="number" step="0.01" class="je-l-z" value="${c.z != null ? c.z : ''}"></div>
+            <div class="form-group-small"><label>Heading</label><input type="number" step="0.01" class="je-l-w" value="${c.w != null ? c.w : ''}"></div>
+            <div class="form-group-small full" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                <button type="button" class="small-btn" onclick="captureJobLocation(this)"><i class="fas fa-map-marker-alt"></i> Aktuelle Position übernehmen</button>
+                <label class="perm-label" style="flex:0;"><span>Nur für diesen Job</span><input type="checkbox" class="je-l-jobonly" ${l.job_only === false ? '' : 'checked'}></label>
+            </div>
+            <div class="je-l-extra full">${locationExtraFields(l)}</div>
+        </div>
+    `;
+    wrap.appendChild(row);
+}
+
+function onLocTypeChange(sel) {
+    const row = sel.closest('.je-loc-row');
+    const extra = row.querySelector('.je-l-extra');
+    extra.innerHTML = locationExtraFields({ type: sel.value });
+}
+
+async function captureJobLocation(btn) {
+    const row = btn.closest('.je-loc-row');
+    try {
+        const res = await fetchWithAuth('/api/fivem/job_location');
+        if (!res) return;
+        const data = await res.json();
+        if (!data.coords) {
+            showToast('Keine frische Position. Führe im Spiel /setjobloc aus.', 'error');
+            return;
+        }
+        const c = data.coords;
+        row.querySelector('.je-l-x').value = c.x ?? '';
+        row.querySelector('.je-l-y').value = c.y ?? '';
+        row.querySelector('.je-l-z').value = c.z ?? '';
+        row.querySelector('.je-l-w').value = c.w ?? '';
+        showToast('Position übernommen');
+    } catch (e) {
+        showToast('Fehler: ' + e.message, 'error');
+    }
+}
+
+function harvestJobEditor() {
+    const name = (document.getElementById('je-name').value || '').trim().toLowerCase();
+    const label = (document.getElementById('je-label').value || '').trim();
+
+    const grades = [];
+    document.querySelectorAll('#je-grades .je-grade-row').forEach(r => {
+        const grade = parseInt(r.querySelector('.je-g-grade').value);
+        if (isNaN(grade)) return;
+        grades.push({
+            grade,
+            name: (r.querySelector('.je-g-name').value || ('grade' + grade)).trim(),
+            label: (r.querySelector('.je-g-label').value || ('Grade ' + grade)).trim(),
+            salary: parseInt(r.querySelector('.je-g-salary').value) || 0
+        });
+    });
+
+    const locations = [];
+    document.querySelectorAll('#je-locations .je-loc-row').forEach(r => {
+        const type = r.querySelector('.je-l-type').value;
+        const loc = {
+            type,
+            label: (r.querySelector('.je-l-label').value || '').trim(),
+            coords: {
+                x: parseFloat(r.querySelector('.je-l-x').value) || 0,
+                y: parseFloat(r.querySelector('.je-l-y').value) || 0,
+                z: parseFloat(r.querySelector('.je-l-z').value) || 0,
+                w: parseFloat(r.querySelector('.je-l-w').value) || 0
+            },
+            job_only: r.querySelector('.je-l-jobonly').checked
+        };
+        if (type === 'storage' || type === 'armory') {
+            loc.slots = parseInt(r.querySelector('.je-l-slots')?.value) || 50;
+            loc.weight = parseInt(r.querySelector('.je-l-weight')?.value) || 100;
+        } else if (type === 'garage' || type === 'vehicleshop') {
+            loc.vehicles = (r.querySelector('.je-l-vehicles')?.value || '').split('\n').map(line => {
+                const p = line.split(',').map(s => s.trim());
+                if (!p[0]) return null;
+                return { model: p[0], label: p[1] || p[0], price: p[2] != null ? (parseInt(p[2]) || 0) : 0 };
+            }).filter(Boolean);
+        }
+        locations.push(loc);
+    });
+
+    const f5 = {};
+    document.querySelectorAll('#je-f5').forEach(cb => { f5[cb.dataset.f5] = cb.checked; });
+    const civ_access = document.getElementById('je-civ').checked;
+
+    return { name, label: label || name, grades, extra: { locations, f5, civ_access } };
+}
+
+async function saveJobFromEditor() {
+    const payload = harvestJobEditor();
+    if (!/^[a-z0-9_]{1,50}$/.test(payload.name)) {
+        showToast('Ungültiger Job-Name (nur a-z, 0-9, _)', 'error');
+        return;
+    }
+    try {
+        const res = await fetchWithAuth('/api/fivem/job_save', { method: 'POST', body: JSON.stringify(payload) });
+        if (res) {
+            showToast('Job gespeichert – wird auf dem Server angelegt');
+            closeJobEditor();
+            setTimeout(() => loadJobsCreate(true), 1500);
+        }
+    } catch (e) {
+        showToast('Fehler: ' + e.message, 'error');
+    }
+}
+
+async function deleteJobFromEditor() {
+    const name = (document.getElementById('je-name').value || '').trim().toLowerCase();
+    if (!name) return;
+    if (!confirm(`Job "${name}" wirklich löschen? Mitarbeiter werden dadurch jobless.`)) return;
+    try {
+        const res = await fetchWithAuth('/api/fivem/job_delete', { method: 'POST', body: JSON.stringify({ name }) });
+        if (res) {
+            showToast('Job gelöscht');
+            closeJobEditor();
+            setTimeout(() => loadJobsCreate(true), 1500);
+        }
+    } catch (e) {
+        showToast('Fehler: ' + e.message, 'error');
     }
 }
 

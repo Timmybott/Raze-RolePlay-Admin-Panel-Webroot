@@ -946,12 +946,129 @@ async def handle_job_action_post(request):
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
+# --- JOB-CREATOR: Daten, Speichern/Löschen, Koordinaten-Erfassung ---
+RAZE_JOB_DATA = {}      # job_name -> extra data (locations, f5, civ_access, ...)
+JOB_DB_QUEUE = []       # Schreib-Operationen für den Game-Server (save/delete)
+LAST_JOB_LOCATION = {"coords": None, "ts": 0}
+
+async def handle_job_data_get(request):
+    """Panel holt die Zusatz-Job-Daten (Locations etc.) aus raze_job_data."""
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_jobs"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    return web.json_response(RAZE_JOB_DATA)
+
+async def handle_job_data_post(request):
+    """Game-Server synct den Inhalt von raze_job_data ans Panel."""
+    if not check_fivem_key(request):
+        return web.json_response({"error": "Invalid API key"}, status=401)
+    try:
+        data = await request.json()
+        global RAZE_JOB_DATA
+        if isinstance(data, dict):
+            RAZE_JOB_DATA = data
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+def _valid_job_name(name):
+    return isinstance(name, str) and 0 < len(name) <= 50 and all(c.isalnum() or c == '_' for c in name)
+
+async def handle_job_save_post(request):
+    """Erstellt/aktualisiert einen Job (ESX-Basis jobs/job_grades + raze_job_data)."""
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_jobs"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    try:
+        data = await request.json()
+        name = (data.get("name") or "").strip().lower()
+        if not _valid_job_name(name):
+            return web.json_response({"error": "Ungültiger Job-Name (nur a-z, 0-9, _)"}, status=400)
+        if name == "unemployed":
+            return web.json_response({"error": "'unemployed' kann nicht bearbeitet werden"}, status=400)
+        label = (data.get("label") or name).strip()
+
+        grades = []
+        for g in (data.get("grades") or []):
+            try:
+                grades.append({
+                    "grade": int(g.get("grade")),
+                    "name": str(g.get("name") or g.get("label") or "grade"),
+                    "label": str(g.get("label") or g.get("name") or "Grade"),
+                    "salary": max(0, int(g.get("salary") or 0))
+                })
+            except (TypeError, ValueError):
+                continue
+        if not grades:
+            grades = [{"grade": 0, "name": "recruit", "label": "Mitarbeiter", "salary": 0}]
+        grades.sort(key=lambda x: x["grade"])
+
+        extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
+
+        # ESX-Basis + raze_job_data über den Game-Server schreiben lassen
+        JOB_DB_QUEUE.append({"op": "save", "name": name, "label": label, "grades": grades, "extra": extra})
+        # Optimistisch im Panel-Cache aktualisieren
+        RAZE_JOB_DATA[name] = extra
+        append_console_line(f"[Panel] {current_user}: JOB-SAVE -> {name} ({len(grades)} Grades)", "rcon")
+        print(f"[Panel] Job gespeichert von {current_user}: {name}")
+        return web.json_response({"status": "queued"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+async def handle_job_delete_post(request):
+    """Löscht einen Job (jobs/job_grades + raze_job_data)."""
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_jobs"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    try:
+        data = await request.json()
+        name = (data.get("name") or "").strip().lower()
+        if not _valid_job_name(name) or name == "unemployed":
+            return web.json_response({"error": "Ungültiger Job"}, status=400)
+        JOB_DB_QUEUE.append({"op": "delete", "name": name})
+        RAZE_JOB_DATA.pop(name, None)
+        append_console_line(f"[Panel] {current_user}: JOB-DELETE -> {name}", "rcon")
+        print(f"[Panel] Job gelöscht von {current_user}: {name}")
+        return web.json_response({"status": "queued"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+async def handle_job_location_post(request):
+    """Game-Server meldet eine im Spiel erfasste Position (/setjobloc)."""
+    if not check_fivem_key(request):
+        return web.json_response({"error": "Invalid API key"}, status=401)
+    try:
+        data = await request.json()
+        global LAST_JOB_LOCATION
+        LAST_JOB_LOCATION = {"coords": data.get("coords"), "label": data.get("label"), "ts": time.time()}
+        return web.json_response({"status": "ok"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+async def handle_job_location_get(request):
+    """Panel holt die zuletzt im Spiel erfasste Position."""
+    current_user = await check_auth(request)
+    if not current_user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not has_permission(current_user, "manage_jobs"):
+        return web.json_response({"error": "Keine Berechtigung"}, status=403)
+    # Position nur als "frisch" liefern, wenn < 60s alt
+    fresh = (time.time() - LAST_JOB_LOCATION.get("ts", 0)) < 60
+    return web.json_response({"coords": LAST_JOB_LOCATION.get("coords") if fresh else None,
+                              "fresh": fresh})
+
 async def handle_fivem_commands_get(request):
     # Called by FiveM Server script
     if not check_fivem_key(request):
         return web.json_response({"error": "Invalid API key"}, status=401)
 
-    response = {"commands": [], "actions": [], "detail_requests": [], "job_employee_requests": []}
+    response = {"commands": [], "actions": [], "detail_requests": [], "job_employee_requests": [], "job_db_ops": []}
     if COMMAND_QUEUE:
         response["commands"] = list(COMMAND_QUEUE)
         COMMAND_QUEUE.clear()
@@ -964,6 +1081,9 @@ async def handle_fivem_commands_get(request):
     if JOB_EMPLOYEE_REQUEST_QUEUE:
         response["job_employee_requests"] = list(JOB_EMPLOYEE_REQUEST_QUEUE)
         JOB_EMPLOYEE_REQUEST_QUEUE.clear()
+    if JOB_DB_QUEUE:
+        response["job_db_ops"] = list(JOB_DB_QUEUE)
+        JOB_DB_QUEUE.clear()
     return web.json_response(response)
 
 async def handle_console_post(request):
@@ -1238,6 +1358,12 @@ async def start_web_server():
     app.router.add_post('/api/fivem/job_employees', handle_job_employees_post)
     app.router.add_get('/api/fivem/job_employees', handle_job_employees_get)
     app.router.add_post('/api/fivem/job_action', handle_job_action_post)
+    app.router.add_get('/api/fivem/job_data', handle_job_data_get)
+    app.router.add_post('/api/fivem/job_data', handle_job_data_post)
+    app.router.add_post('/api/fivem/job_save', handle_job_save_post)
+    app.router.add_post('/api/fivem/job_delete', handle_job_delete_post)
+    app.router.add_post('/api/fivem/job_location', handle_job_location_post)
+    app.router.add_get('/api/fivem/job_location', handle_job_location_get)
     
     # Auth & Admin Routes
     app.router.add_post('/api/login', handle_login)
