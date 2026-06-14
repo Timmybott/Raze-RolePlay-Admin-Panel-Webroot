@@ -1,15 +1,64 @@
-name: Restart Pterodactyl Server
+name: Deploy Admin Panel & Restart Server
 
 on:
   push:
     branches:
-      - main  # Passe den Branch an, falls nötig
+      - main
 
 jobs:
-  restart-server:
+  deploy-and-restart:
     runs-on: ubuntu-latest
     steps:
-      - name: Send Restart Request
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get changed files
+        id: changed
+        run: |
+          if git rev-parse HEAD~1 > /dev/null 2>&1; then
+            BASE="HEAD~1"
+          else
+            BASE=$(git hash-object -t tree /dev/null)
+          fi
+
+          git diff --name-only --diff-filter=AM "$BASE" HEAD > changed_files.txt
+          git diff --name-only --diff-filter=D "$BASE" HEAD > deleted_files.txt
+          git diff --name-only --diff-filter=R "$BASE" HEAD > renamed_new.txt
+          git diff --diff-filter=R --name-status "$BASE" HEAD | awk '{print $2}' > renamed_old.txt
+
+          echo "=== Neu/Geändert ===" && cat changed_files.txt
+          echo "=== Gelöscht ===" && cat deleted_files.txt
+          echo "=== Umbenannt (neu) ===" && cat renamed_new.txt
+          echo "=== Umbenannt (alt, wird gelöscht) ===" && cat renamed_old.txt
+
+      - name: Upload changed files & delete removed files via SFTP
+        run: |
+          sudo apt-get install -y lftp
+
+          lftp -u "${{ secrets.SFTP_USER_PANEL }}","${{ secrets.SFTP_PASSWORD_PANEL }}" \
+            -p ${{ secrets.SFTP_PORT_PANEL }} \
+            sftp://${{ secrets.SFTP_HOST_PANEL }} <<EOF
+          set sftp:auto-confirm yes
+          set net:timeout 30
+
+          $(while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            dir=$(dirname "$file")
+            echo "mkdir -p /home/container/$dir"
+            echo "put $file -o /home/container/$file"
+          done < <(cat changed_files.txt renamed_new.txt))
+
+          $(while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            echo "rm /home/container/$file"
+          done < <(cat deleted_files.txt renamed_old.txt))
+
+          bye
+          EOF
+
+      - name: Restart Pterodactyl Server
         run: |
           curl -X POST "https://panel.spaceify.eu/api/client/servers/09da5fe8/power" \
             -H "Authorization: Bearer ${{ secrets.PTERO_API_KEY }}" \
