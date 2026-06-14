@@ -2238,8 +2238,16 @@ const LOCATION_TYPES = [
     { value: 'storage', label: 'Item-Lager (ox_inventory Stash)' },
     { value: 'armory', label: 'Waffenlager (ox_inventory Stash)' },
     { value: 'garage', label: 'Garage (Fahrzeuge ein-/ausparken)' },
-    { value: 'vehicleshop', label: 'Fahrzeug-Shop' },
     { value: 'cloakroom', label: 'Umkleide' }
+];
+
+// Gängige GTA-Blip-Farben (Palette-Index)
+const BLIP_COLORS = [
+    { v: 0, label: 'Weiß' }, { v: 1, label: 'Rot' }, { v: 2, label: 'Grün' },
+    { v: 3, label: 'Blau' }, { v: 5, label: 'Gelb' }, { v: 17, label: 'Orange' },
+    { v: 8, label: 'Pink' }, { v: 7, label: 'Lila' }, { v: 27, label: 'Hellblau' },
+    { v: 25, label: 'Dunkelgrün' }, { v: 38, label: 'Dunkelblau' }, { v: 47, label: 'Türkis' },
+    { v: 4, label: 'Hellrot' }, { v: 46, label: 'Dunkelrot' }, { v: 40, label: 'Grau' }
 ];
 const F5_FUNCTIONS = [
     { key: 'cuff', label: 'Fesseln' },
@@ -2252,7 +2260,7 @@ const F5_FUNCTIONS = [
 ];
 
 let jobsCreateCache = [];   // ESX-Jobs (name,label,grades)
-let jobDataCache = {};      // job_name -> extra (locations, f5, civ_access)
+let jobDataCache = {};      // job_name -> extra (locations, blips, f5, color)
 
 async function loadJobsCreate(force) {
     const container = document.getElementById('jobs-create-list');
@@ -2322,6 +2330,8 @@ function openJobEditor(name) {
             <input type="checkbox" class="je-f5" data-f5="${f.key}" ${f5[f.key] ? 'checked' : ''}></label>`
     ).join('');
 
+    const jobColor = extra.color || '#ff4e00';
+
     document.getElementById('job-editor-body').innerHTML = `
         <div class="form-row">
             <div class="form-group">
@@ -2331,6 +2341,10 @@ function openJobEditor(name) {
             <div class="form-group">
                 <label>Label (Anzeigename)</label>
                 <input type="text" id="je-label" value="${escapeHtml(job ? (job.label || '') : '')}" placeholder="z.B. Mechaniker">
+            </div>
+            <div class="form-group" style="flex:0 0 auto;">
+                <label>Marker-Farbe</label>
+                <input type="color" id="je-color" value="${escapeHtml(jobColor)}" title="Farbe der 3D-Marker (Lager, Umkleide, …)">
             </div>
         </div>
 
@@ -2342,17 +2356,20 @@ function openJobEditor(name) {
         <div id="je-locations"></div>
         <button type="button" class="btn-refresh" onclick="addLocationRow()"><i class="fas fa-plus"></i> Location</button>
 
+        <h4 class="job-sub">Karten-Blips</h4>
+        <div id="je-blips"></div>
+        <button type="button" class="btn-refresh" onclick="addBlipRow()"><i class="fas fa-plus"></i> Blip</button>
+
         <h4 class="job-sub">F5-Menü Funktionen (Phase 3)</h4>
         <div class="perm-grid" style="flex-direction:row; flex-wrap:wrap;">${f5Html}</div>
-        <label class="perm-label" style="margin-top:8px;"><span>Zivilisten (ohne Job) dürfen das F5-Menü nutzen</span>
-            <input type="checkbox" id="je-civ" ${extra.civ_access ? 'checked' : ''}></label>
     `;
 
     // Grades befüllen
     const grades = (job && job.grades && job.grades.length) ? job.grades : [{ grade: 0, name: 'recruit', label: 'Mitarbeiter', salary: 0 }];
     grades.forEach(g => addGradeRow(g));
-    // Locations befüllen
+    // Locations & Blips befüllen
     (extra.locations || []).forEach(l => addLocationRow(l));
+    (extra.blips || []).forEach(b => addBlipRow(b));
 
     document.getElementById('job-editor-modal').classList.remove('hidden');
 }
@@ -2383,11 +2400,11 @@ function locationExtraFields(l) {
         <div class="form-group-small"><label>Slots</label><input type="number" class="je-l-slots" value="${Number(l.slots) || 50}"></div>
         <div class="form-group-small"><label>Max. Gewicht (kg)</label><input type="number" class="je-l-weight" value="${Number(l.weight) || 100}"></div>`;
     }
-    if (t === 'garage' || t === 'vehicleshop') {
+    if (t === 'garage') {
         const vehText = (l.vehicles || []).map(v => `${v.model},${v.label || v.model}${v.price != null ? ',' + v.price : ''}`).join('\n');
         return `
-        <div class="form-group-small full"><label>Fahrzeuge (eine Zeile je Fahrzeug: <code>model,Label,Preis</code>)</label>
-            <textarea class="je-l-vehicles" rows="3" placeholder="adder,Adder,250000">${escapeHtml(vehText)}</textarea></div>`;
+        <div class="form-group-small full"><label>Fahrzeuge zum Ausparken (eine Zeile je Fahrzeug: <code>model,Label,Preis</code>)</label>
+            <textarea class="je-l-vehicles" rows="3" placeholder="towtruck,Abschlepper,0">${escapeHtml(vehText)}</textarea></div>`;
     }
     return '';
 }
@@ -2426,25 +2443,73 @@ function onLocTypeChange(sel) {
     extra.innerHTML = locationExtraFields({ type: sel.value });
 }
 
+async function fetchCapturedCoords() {
+    const res = await fetchWithAuth('/api/fivem/job_location');
+    if (!res) return null;
+    const data = await res.json();
+    if (!data.coords) {
+        showToast('Keine frische Position. Führe im Spiel /setjobloc aus.', 'error');
+        return null;
+    }
+    return data.coords;
+}
+
 async function captureJobLocation(btn) {
     const row = btn.closest('.je-loc-row');
     try {
-        const res = await fetchWithAuth('/api/fivem/job_location');
-        if (!res) return;
-        const data = await res.json();
-        if (!data.coords) {
-            showToast('Keine frische Position. Führe im Spiel /setjobloc aus.', 'error');
-            return;
-        }
-        const c = data.coords;
+        const c = await fetchCapturedCoords();
+        if (!c) return;
         row.querySelector('.je-l-x').value = c.x ?? '';
         row.querySelector('.je-l-y').value = c.y ?? '';
         row.querySelector('.je-l-z').value = c.z ?? '';
         row.querySelector('.je-l-w').value = c.w ?? '';
         showToast('Position übernommen');
-    } catch (e) {
-        showToast('Fehler: ' + e.message, 'error');
-    }
+    } catch (e) { showToast('Fehler: ' + e.message, 'error'); }
+}
+
+async function captureBlipLocation(btn) {
+    const row = btn.closest('.je-blip-row');
+    try {
+        const c = await fetchCapturedCoords();
+        if (!c) return;
+        row.querySelector('.je-b-x').value = c.x ?? '';
+        row.querySelector('.je-b-y').value = c.y ?? '';
+        row.querySelector('.je-b-z').value = c.z ?? '';
+        showToast('Position übernommen');
+    } catch (e) { showToast('Fehler: ' + e.message, 'error'); }
+}
+
+function addBlipRow(b) {
+    b = b || { sprite: 1, name: '', color: 0, scale: 0.8, coords: {}, visibility: 'all' };
+    const wrap = document.getElementById('je-blips');
+    const c = b.coords || {};
+    const row = document.createElement('div');
+    row.className = 'je-blip-row builder-card';
+    const colorOpts = BLIP_COLORS.map(co => `<option value="${co.v}" ${co.v === (b.color || 0) ? 'selected' : ''}>${co.label} (${co.v})</option>`).join('');
+    row.innerHTML = `
+        <div class="row-header">
+            <input type="text" class="je-b-name" placeholder="Blip-Name (z.B. Polizei)" value="${escapeHtml(b.name || '')}">
+            <button type="button" class="del-btn" onclick="this.closest('.je-blip-row').remove()"><i class="fas fa-trash"></i></button>
+        </div>
+        <div class="row-body">
+            <div class="form-group-small"><label>X</label><input type="number" step="0.01" class="je-b-x" value="${c.x != null ? c.x : ''}"></div>
+            <div class="form-group-small"><label>Y</label><input type="number" step="0.01" class="je-b-y" value="${c.y != null ? c.y : ''}"></div>
+            <div class="form-group-small"><label>Z</label><input type="number" step="0.01" class="je-b-z" value="${c.z != null ? c.z : ''}"></div>
+            <div class="form-group-small"><label>Sprite (Icon-Nr.)</label><input type="number" class="je-b-sprite" value="${Number(b.sprite) || 1}" title="GTA Blip-Sprite-Nummer"></div>
+            <div class="form-group-small"><label>Farbe</label><select class="je-b-color select-input">${colorOpts}</select></div>
+            <div class="form-group-small"><label>Größe</label><input type="number" step="0.1" class="je-b-scale" value="${Number(b.scale) || 0.8}"></div>
+            <div class="form-group-small"><label>Sichtbar für</label>
+                <select class="je-b-vis select-input">
+                    <option value="all" ${(b.visibility || 'all') === 'all' ? 'selected' : ''}>Alle Spieler</option>
+                    <option value="job" ${b.visibility === 'job' ? 'selected' : ''}>Nur Mitarbeiter</option>
+                </select>
+            </div>
+            <div class="form-group-small full">
+                <button type="button" class="small-btn" onclick="captureBlipLocation(this)"><i class="fas fa-map-marker-alt"></i> Aktuelle Position übernehmen</button>
+            </div>
+        </div>
+    `;
+    wrap.appendChild(row);
 }
 
 function harvestJobEditor() {
@@ -2480,7 +2545,7 @@ function harvestJobEditor() {
         if (type === 'storage' || type === 'armory') {
             loc.slots = parseInt(r.querySelector('.je-l-slots')?.value) || 50;
             loc.weight = parseInt(r.querySelector('.je-l-weight')?.value) || 100;
-        } else if (type === 'garage' || type === 'vehicleshop') {
+        } else if (type === 'garage') {
             loc.vehicles = (r.querySelector('.je-l-vehicles')?.value || '').split('\n').map(line => {
                 const p = line.split(',').map(s => s.trim());
                 if (!p[0]) return null;
@@ -2490,11 +2555,27 @@ function harvestJobEditor() {
         locations.push(loc);
     });
 
+    const blips = [];
+    document.querySelectorAll('#je-blips .je-blip-row').forEach(r => {
+        blips.push({
+            name: (r.querySelector('.je-b-name').value || '').trim(),
+            coords: {
+                x: parseFloat(r.querySelector('.je-b-x').value) || 0,
+                y: parseFloat(r.querySelector('.je-b-y').value) || 0,
+                z: parseFloat(r.querySelector('.je-b-z').value) || 0
+            },
+            sprite: parseInt(r.querySelector('.je-b-sprite').value) || 1,
+            color: parseInt(r.querySelector('.je-b-color').value) || 0,
+            scale: parseFloat(r.querySelector('.je-b-scale').value) || 0.8,
+            visibility: r.querySelector('.je-b-vis').value
+        });
+    });
+
     const f5 = {};
     document.querySelectorAll('#je-f5').forEach(cb => { f5[cb.dataset.f5] = cb.checked; });
-    const civ_access = document.getElementById('je-civ').checked;
+    const color = document.getElementById('je-color').value || '#ff4e00';
 
-    return { name, label: label || name, grades, extra: { locations, f5, civ_access } };
+    return { name, label: label || name, grades, extra: { locations, blips, f5, color } };
 }
 
 async function saveJobFromEditor() {
