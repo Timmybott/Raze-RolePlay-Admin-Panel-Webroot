@@ -2577,7 +2577,7 @@ function harvestJobEditor() {
     });
 
     const f5 = {};
-    document.querySelectorAll('#je-f5').forEach(cb => { f5[cb.dataset.f5] = cb.checked; });
+    document.querySelectorAll('#job-editor-body .je-f5').forEach(cb => { f5[cb.dataset.f5] = cb.checked; });
     const color = document.getElementById('je-color').value || '#ff4e00';
     const use_zsx_color = document.getElementById('je-zsx-color').checked;
 
