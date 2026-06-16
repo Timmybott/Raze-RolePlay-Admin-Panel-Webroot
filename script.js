@@ -150,6 +150,8 @@ async function fetchServerStatus() {
 
             refreshPlayerModal();
 
+            refreshHireDropdowns();
+
         }
 
     } catch (e) {
@@ -2105,6 +2107,28 @@ function toggleJobCard(jobName) {
     renderJobsManage(); // kümmert sich auch um das Laden der Mitarbeiter
 }
 
+// Hält die "Mitarbeiter einstellen"-Dropdowns aktuell. Sie werden in renderJobBody
+// nur beim Aufklappen aus currentServerData.players befüllt; ohne diesen Refresh
+// blieben sie leer/veraltet, wenn die Spielerliste beim Aufklappen noch nicht da
+// war oder sich später ändert (Bug: "Mitarbeiter Einstellen" lädt manchmal nicht).
+function refreshHireDropdowns() {
+    if (!expandedJobs.size) return;
+    const players = currentServerData.players || [];
+    const options = players.length
+        ? players.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (ID ${p.id})</option>`).join('')
+        : '<option value="">Keine Spieler online</option>';
+    expandedJobs.forEach(jobName => {
+        const idx = jobsManageCache.findIndex(j => j.name === jobName);
+        if (idx < 0) return;
+        const sel = document.getElementById('hire-player-' + idx);
+        if (!sel) return; // Karte nicht (mehr) gerendert
+        const prev = sel.value;
+        sel.innerHTML = options;
+        // bisherige Auswahl beibehalten, falls der Spieler noch online ist
+        if (prev && players.some(p => String(p.id) === String(prev))) sel.value = prev;
+    });
+}
+
 // Stößt die Mitarbeiter-Abfrage genau EINMAL an und zeigt danach Daten/Fehler
 function ensureJobEmployees(jobName) {
     const idx = jobsManageCache.findIndex(j => j.name === jobName);
@@ -2152,8 +2176,10 @@ async function requestJobEmployees(jobName) {
         const data = await res.json();
         const requestId = data.request_id;
         if (!requestId) return null;
-        // Schnell pollen (500ms), bis ~8s; Game-Server pollt selbst alle 2s
-        for (let i = 0; i < 16; i++) {
+        // Schnell pollen (500ms); Game-Server pollt selbst nur alle 2s und macht
+        // danach eine DB-Abfrage. 8s waren bei Last manchmal zu knapp -> Timeout.
+        // ~13s Fenster fängt die Latenz-Spitzen ab (Server hält das Ergebnis 120s vor).
+        for (let i = 0; i < 26; i++) {
             await new Promise(r => setTimeout(r, 500));
             const poll = await fetchWithAuth('/api/fivem/job_employees?id=' + encodeURIComponent(requestId));
             if (!poll) return null;
@@ -2593,6 +2619,14 @@ async function saveJobFromEditor() {
     try {
         const res = await fetchWithAuth('/api/fivem/job_save', { method: 'POST', body: JSON.stringify(payload) });
         if (res) {
+            // Lokalen Cache optimistisch aktualisieren, damit ein sofortiges
+            // Wieder-Öffnen die gerade gespeicherten Werte zeigt – unabhängig vom
+            // Server-Roundtrip. Der Reconcile-Reload unten holt sich danach den
+            // bestätigten Stand vom (jetzt ebenfalls aktualisierten) Backend.
+            const existing = jobsCreateCache.find(j => j.name === payload.name);
+            if (existing) { existing.label = payload.label; existing.grades = payload.grades; }
+            else { jobsCreateCache.push({ name: payload.name, label: payload.label, grades: payload.grades }); }
+            jobDataCache[payload.name] = payload.extra;
             showToast('Job gespeichert – wird auf dem Server angelegt');
             closeJobEditor();
             setTimeout(() => loadJobsCreate(true), 1500);
@@ -2609,6 +2643,9 @@ async function deleteJobFromEditor() {
     try {
         const res = await fetchWithAuth('/api/fivem/job_delete', { method: 'POST', body: JSON.stringify({ name }) });
         if (res) {
+            // Optimistisch aus dem lokalen Cache entfernen
+            jobsCreateCache = jobsCreateCache.filter(j => j.name !== name);
+            delete jobDataCache[name];
             showToast('Job gelöscht');
             closeJobEditor();
             setTimeout(() => loadJobsCreate(true), 1500);

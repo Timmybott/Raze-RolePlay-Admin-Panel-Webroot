@@ -976,6 +976,22 @@ async def handle_job_data_post(request):
 def _valid_job_name(name):
     return isinstance(name, str) and 0 < len(name) <= 50 and all(c.isalnum() or c == '_' for c in name)
 
+
+def _upsert_job_in_jobs_data(name, label, grades):
+    """Aktualisiert die ESX-Basis-Jobliste (JOBS_DATA) optimistisch, damit
+    /api/fivem/jobs sofort die gespeicherten Grades/Label liefert – ohne auf den
+    Game-Server-Roundtrip (Poll alle 2s + asynchrones ESX.RefreshJobs + 5-Min-Sync)
+    zu warten. Sonst zeigt der Job-Editor nach dem Speichern beim erneuten Öffnen
+    noch die alten Werte (erst ein manueller Seiten-Reload würde es korrigieren)."""
+    entry = {"name": name, "label": label, "grades": grades}
+    for i, j in enumerate(JOBS_DATA):
+        if isinstance(j, dict) and j.get("name") == name:
+            JOBS_DATA[i] = entry
+            break
+    else:
+        JOBS_DATA.append(entry)
+    JOBS_DATA.sort(key=lambda j: str((j.get("label") or j.get("name")) if isinstance(j, dict) else "").lower())
+
 async def handle_job_save_post(request):
     """Erstellt/aktualisiert einen Job (ESX-Basis jobs/job_grades + raze_job_data)."""
     current_user = await check_auth(request)
@@ -1011,8 +1027,10 @@ async def handle_job_save_post(request):
 
         # ESX-Basis + raze_job_data über den Game-Server schreiben lassen
         JOB_DB_QUEUE.append({"op": "save", "name": name, "label": label, "grades": grades, "extra": extra})
-        # Optimistisch im Panel-Cache aktualisieren
+        # Optimistisch im Panel-Cache aktualisieren (Zusatzdaten UND ESX-Basis),
+        # damit ein sofortiges Wieder-Öffnen des Editors die neuen Werte zeigt.
         RAZE_JOB_DATA[name] = extra
+        _upsert_job_in_jobs_data(name, label, grades)
         append_console_line(f"[Panel] {current_user}: JOB-SAVE -> {name} ({len(grades)} Grades)", "rcon")
         print(f"[Panel] Job gespeichert von {current_user}: {name}")
         return web.json_response({"status": "queued"})
@@ -1033,6 +1051,8 @@ async def handle_job_delete_post(request):
             return web.json_response({"error": "Ungültiger Job"}, status=400)
         JOB_DB_QUEUE.append({"op": "delete", "name": name})
         RAZE_JOB_DATA.pop(name, None)
+        # Optimistisch auch aus der ESX-Basis-Jobliste entfernen
+        JOBS_DATA[:] = [j for j in JOBS_DATA if not (isinstance(j, dict) and j.get("name") == name)]
         append_console_line(f"[Panel] {current_user}: JOB-DELETE -> {name}", "rcon")
         print(f"[Panel] Job gelöscht von {current_user}: {name}")
         return web.json_response({"status": "queued"})
