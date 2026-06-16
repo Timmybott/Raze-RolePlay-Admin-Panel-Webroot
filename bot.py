@@ -129,7 +129,11 @@ def load_config():
     except Exception as e:
         print(f"Fehler beim Laden der Discord-Konfiguration: {e}")
 
+# Alte Standard-Ban-Nachricht (für die Migration auf die Variante mit [Zeit]/[Restzeit])
+OLD_DEFAULT_BAN_MESSAGE = ("\n\nDu wurdest von diesem Server gebannt.\n\nGrund: [Grund]\n\n"
+                           "Melde dich bitte auf unserem Discord: https://dc.gg/razerp")
 DEFAULT_BAN_MESSAGE = ("\n\nDu wurdest von diesem Server gebannt.\n\nGrund: [Grund]\n\n"
+                       "Bann-Dauer: [Zeit]\nVerbleibend: [Restzeit]\n\n"
                        "Melde dich bitte auf unserem Discord: https://dc.gg/razerp")
 DEFAULT_KICK_MESSAGE = ("\n\nDu wurdest von diesem Server gekickt.\n\nGrund: [Grund]\n\n"
                         "Bei Fragen melde dich auf unserem Discord: https://dc.gg/razerp")
@@ -157,6 +161,11 @@ def load_fivem_config():
             # Fehlende Kick-Nachricht ergänzen (Migration)
             if "FIVEM_KICK_MESSAGE" not in FIVEM_CONFIG:
                 FIVEM_CONFIG["FIVEM_KICK_MESSAGE"] = DEFAULT_KICK_MESSAGE
+                save_fivem_config()
+            # Unveränderte alte Standard-Ban-Nachricht auf die Variante mit
+            # [Zeit]/[Restzeit] anheben (angepasste Nachrichten bleiben unangetastet).
+            if FIVEM_CONFIG.get("FIVEM_BANLIST_MESSAGE") == OLD_DEFAULT_BAN_MESSAGE:
+                FIVEM_CONFIG["FIVEM_BANLIST_MESSAGE"] = DEFAULT_BAN_MESSAGE
                 save_fivem_config()
         print("FiveM-Konfiguration erfolgreich geladen.")
     except Exception as e:
@@ -225,12 +234,52 @@ def prune_expired_bans():
     if len(FIVEM_BANS) != before:
         save_bans()
 
-def format_reason_message(template, reason):
-    """Ersetzt [Grund]/[grund]/[reason] im Nachrichten-Template durch den Grund."""
+def format_duration(seconds):
+    """Wandelt eine Dauer in Sekunden in einen lesbaren deutschen Text um
+    (z.B. '2 Tage 3 Stunden'). <= 0 gilt als abgelaufen."""
+    seconds = int(seconds)
+    if seconds <= 0:
+        return "abgelaufen"
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days} Tag{'e' if days != 1 else ''}")
+    if hours:
+        parts.append(f"{hours} Stunde{'n' if hours != 1 else ''}")
+    if minutes:
+        parts.append(f"{minutes} Minute{'n' if minutes != 1 else ''}")
+    if secs and not parts:  # Sekunden nur zeigen, wenn die Dauer unter 1 Minute liegt
+        parts.append(f"{secs} Sekunde{'n' if secs != 1 else ''}")
+    return " ".join(parts)
+
+def format_reason_message(template, reason, ban=None):
+    """Ersetzt im Nachrichten-Template die Platzhalter:
+      [Grund]    -> Bann-Grund
+      [Zeit]     -> ursprüngliche Bann-Dauer (created..expires)
+      [Restzeit] -> verbleibende Bann-Dauer (jetzt..expires)
+    Ohne Ban-Kontext (z.B. Kick oder permanente Banlist) gelten die Zeiten als
+    'permanent'."""
     reason = (reason or "").strip() or "Kein Grund angegeben"
     template = template or ""
     for ph in ("[Grund]", "[grund]", "[GRUND]", "[reason]", "[Reason]"):
         template = template.replace(ph, reason)
+
+    original_txt = remaining_txt = "permanent"
+    if ban is not None:
+        expires = ban.get("expires")
+        if expires is not None:
+            created = ban.get("created")
+            original_txt = format_duration(expires - created) if created is not None \
+                else format_duration(round(expires - time.time()))
+            # auf die nächste Sekunde runden, damit ein frisch verhängter Bann
+            # bei "Verbleibend" nicht 6T 23Std 59Min statt 7 Tagen zeigt
+            remaining_txt = format_duration(round(expires - time.time()))
+    for ph in ("[Zeit]", "[zeit]", "[ZEIT]"):
+        template = template.replace(ph, original_txt)
+    for ph in ("[Restzeit]", "[restzeit]", "[RESTZEIT]", "[RestZeit]"):
+        template = template.replace(ph, remaining_txt)
     return template
 
 def filter_ban_identifiers(identifiers):
@@ -479,7 +528,7 @@ async def handle_fivem_validate_post(request):
             if id_set.intersection(ban.get("identifiers", [])):
                 return web.json_response({
                     "allowed": False,
-                    "reason": format_reason_message(ban_template, ban.get("reason"))
+                    "reason": format_reason_message(ban_template, ban.get("reason"), ban)
                 })
 
         # 1b. Manuelle Banlist (einfache Identifier, nur bei aktivierter Banlist)
@@ -738,8 +787,8 @@ async def handle_player_action_post(request):
             FIVEM_BANS.append(ban_entry)
             save_bans()
 
-            # Spieler sofort vom Server werfen (mit Ban-Nachricht inkl. Grund)
-            message = format_reason_message(FIVEM_CONFIG.get("FIVEM_BANLIST_MESSAGE", DEFAULT_BAN_MESSAGE), reason)
+            # Spieler sofort vom Server werfen (mit Ban-Nachricht inkl. Grund/Zeit)
+            message = format_reason_message(FIVEM_CONFIG.get("FIVEM_BANLIST_MESSAGE", DEFAULT_BAN_MESSAGE), reason, ban_entry)
             if target_id is not None:
                 PLAYER_ACTION_QUEUE.append({"action": "kick", "id": target_id, "identifier": identifier,
                                             "params": {"message": message}})

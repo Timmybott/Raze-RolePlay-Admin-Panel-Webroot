@@ -2200,9 +2200,12 @@ function renderJobEmployees(jobName) {
     if (employees.length === 0) { el.innerHTML = '<div class="empty-state">Keine Mitarbeiter.</div>'; return; }
     el.innerHTML = employees.map(emp => {
         const gradeOptions = grades.map(g => `<option value="${g.grade}" ${g.grade === emp.grade ? 'selected' : ''}>${escapeHtml(g.label || g.name)} (${g.grade})</option>`).join('');
+        const clickable = emp.identifier
+            ? ` onclick="openPlayerByIdentifier('${safeAttr(emp.identifier)}')" style="cursor:pointer;" title="Spieler-Details öffnen"`
+            : '';
         return `
         <div class="employee-row">
-            <div class="employee-info">
+            <div class="employee-info"${clickable}>
                 <span class="employee-dot ${emp.online ? 'online' : 'offline'}"></span>
                 <span class="employee-name">${escapeHtml(emp.name || 'Unbekannt')}</span>
                 <span class="employee-id">${escapeHtml(emp.identifier || '')}</span>

@@ -566,10 +566,11 @@
                             </div>
                             <div class="form-group">
                                 <label>Ban Nachricht</label>
-                                <textarea name="FIVEM_BANLIST_MESSAGE" id="FIVEM_BANLIST_MESSAGE" rows="4"
-                                    placeholder="Hallo, du wurdest von diesem Server gebannt.&#10;&#10;Grund: [Grund]&#10;&#10;Melde dich auf unserem Discord: https://dc.gg/razerp"></textarea>
-                                <small class="text-muted">Platzhalter <code>[Grund]</code> wird durch den eingegebenen
-                                    Bann-Grund ersetzt.</small>
+                                <textarea name="FIVEM_BANLIST_MESSAGE" id="FIVEM_BANLIST_MESSAGE" rows="5"
+                                    placeholder="Hallo, du wurdest von diesem Server gebannt.&#10;&#10;Grund: [Grund]&#10;Bann-Dauer: [Zeit]&#10;Verbleibend: [Restzeit]&#10;&#10;Melde dich auf unserem Discord: https://dc.gg/razerp"></textarea>
+                                <small class="text-muted">Platzhalter: <code>[Grund]</code> = Bann-Grund,
+                                    <code>[Zeit]</code> = ursprüngliche Bann-Dauer, <code>[Restzeit]</code> =
+                                    verbleibende Bann-Dauer (bei permanenten Banns jeweils „permanent").</small>
                             </div>
                             <div class="form-group">
                                 <label>Kick Nachricht</label>
