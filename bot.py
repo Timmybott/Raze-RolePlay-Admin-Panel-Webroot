@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+import math
 import base64
 import hashlib
 import hmac
@@ -271,11 +272,12 @@ def format_reason_message(template, reason, ban=None):
         expires = ban.get("expires")
         if expires is not None:
             created = ban.get("created")
+            # Restzeit aufrunden (ceil), damit ein frisch verhängter Bann bei
+            # "Verbleibend" die volle Dauer zeigt (statt z.B. 2T 23Std 59Min).
+            remaining_secs = math.ceil(expires - time.time())
             original_txt = format_duration(expires - created) if created is not None \
-                else format_duration(round(expires - time.time()))
-            # auf die nächste Sekunde runden, damit ein frisch verhängter Bann
-            # bei "Verbleibend" nicht 6T 23Std 59Min statt 7 Tagen zeigt
-            remaining_txt = format_duration(round(expires - time.time()))
+                else format_duration(remaining_secs)
+            remaining_txt = format_duration(remaining_secs)
     for ph in ("[Zeit]", "[zeit]", "[ZEIT]"):
         template = template.replace(ph, original_txt)
     for ph in ("[Restzeit]", "[restzeit]", "[RESTZEIT]", "[RestZeit]"):
