@@ -2253,10 +2253,46 @@ async function hireToJob(jobName, idx) {
     const player = (currentServerData.players || []).find(p => p.id == pid);
     const identifier = player ? ((player.identifiers || []).find(i => i.startsWith('license:')) || (player.identifiers || [])[0]) : null;
     const ok = await postJobAction({ action: 'hire', job: jobName, grade, id: pid, identifier });
-    if (ok) {
-        showToast('Mitarbeiter eingestellt – wird übernommen');
-        setTimeout(() => { delete jobEmployeesCache[jobName]; delete jobEmployeesError[jobName]; ensureJobEmployees(jobName); }, 1500);
+    if (!ok) return;
+    showToast('Mitarbeiter eingestellt – wird übernommen');
+
+    // Optimistisch verschieben: der Spieler war evtl. in einem anderen Job -> aus
+    // ALLEN geladenen Listen entfernen (per server_id, da Online-Spieler) und im
+    // Ziel-Job einsortieren. So steht er sofort im neuen Job und verschwindet aus
+    // dem alten – ohne auf den Game-Server-Roundtrip zu warten.
+    const empName = player ? player.name : (identifier || ('ID ' + pid));
+    Object.keys(jobEmployeesCache).forEach(jn => {
+        jobEmployeesCache[jn] = (jobEmployeesCache[jn] || []).filter(e =>
+            !(e.server_id != null && e.server_id === pid) && !(identifier && e.identifier === identifier));
+    });
+    if (jobEmployeesCache[jobName]) {
+        jobEmployeesCache[jobName] = jobEmployeesCache[jobName].concat([
+            { identifier, name: empName, grade, online: true, server_id: pid }
+        ]);
     }
+    expandedJobs.forEach(jn => { if (jobEmployeesCache[jn]) renderJobEmployees(jn); });
+
+    // Danach mit dem Server abgleichen (Aktion wird per Poll alle 2s verarbeitet,
+    // server.lua schreibt users.job dann sofort) – deckt alten + neuen Job ab.
+    setTimeout(() => reconcileJobEmployees([...expandedJobs]), 3000);
+}
+
+// Lädt die Mitarbeiterlisten der angegebenen Jobs im Hintergrund neu (ohne
+// "Lade…"-Flackern) und gleicht so den optimistischen Stand mit den echten
+// Server-Daten ab. Bei Timeout/Fehler bleibt der optimistische Stand erhalten.
+function reconcileJobEmployees(jobNames) {
+    jobNames.forEach(jobName => {
+        if (jobEmployeesLoading.has(jobName)) return;
+        jobEmployeesLoading.add(jobName);
+        requestJobEmployees(jobName).then(employees => {
+            jobEmployeesLoading.delete(jobName);
+            if (employees !== null) {
+                jobEmployeesCache[jobName] = employees;
+                delete jobEmployeesError[jobName];
+                if (expandedJobs.has(jobName)) renderJobEmployees(jobName);
+            }
+        });
+    });
 }
 
 // --- FIVEM JOBS: CREATOR (Phase 2) ---
