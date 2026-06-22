@@ -1,0 +1,12 @@
+# DB-Zugangsdaten – niemals committen!
+.env
+
+# Einmalige Backups der nach MySQL migrierten JSON-Dateien
+*.migrated.bak
+
+# Laufzeit-Cache (stellt sich selbst wieder her)
+all_players_cache.json
+
+# Python
+__pycache__/
+*.pyc
