@@ -16,8 +16,8 @@ import uuid
 from urllib.parse import urlparse, parse_qs
 
 # MySQL-Treiber laden. Auf Pterodactyl gibt es oft KEINE Konsole für 'pip install',
-# darum installiert sich pymysql bei Bedarf automatisch (einmalig beim Start). Klappt
-# das nicht, läuft der Bot weiter mit JSON-Dateien (Degraded) statt abzustürzen.
+# darum installiert sich pymysql bei Bedarf automatisch (einmalig beim Start).
+# Die Datenbank ist PFLICHT – es gibt keinen JSON-Datei-Fallback mehr.
 def _import_pymysql():
     try:
         import pymysql
@@ -33,7 +33,7 @@ if pymysql is None:
     for pip_args in (["pymysql"], ["--user", "pymysql"]):
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install",
-                                   "--disable-pip-version-check"] + pip_args)
+                                   "--disable-pip-version-check"] + pip_args, timeout=120)
         except Exception as e:
             print(f"[DB] pip install {' '.join(pip_args)} fehlgeschlagen: {e}")
             continue
@@ -50,13 +50,12 @@ if pymysql is None:
             print("[DB] pymysql erfolgreich installiert.")
             break
     if pymysql is None:
-        print("[DB] pymysql konnte nicht installiert werden – nutze JSON-Dateien (Degraded).")
+        print("[DB] pymysql konnte nicht installiert/importiert werden.")
 
 # --- CONFIGURATION LOADING ---
-# Load config relative to this script file to avoid CWD issues
+# Alle Einstellungen kommen ausschließlich aus der Datenbank (raze_panel_*).
+# Es gibt KEINE lokalen JSON-Konfig-Dateien mehr (nur der Spieler-Cache bleibt Datei).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(BASE_DIR, 'config.json')
-FIVEM_CONFIG_FILE = os.path.join(BASE_DIR, 'fivem_config.json')
 CONFIG = {}
 FIVEM_CONFIG = {}
 
@@ -72,21 +71,16 @@ except Exception:
 # derselben MySQL-Datenbank wie der FiveM-Server – in Tabellen mit dem Präfix
 # raze_panel_*. So ist nichts mehr in den JSON-Dateien im webroot gespeichert.
 #
-# Die Verbindung selbst kann NICHT in der DB liegen (Henne-Ei), darum kommt sie
-# aus der .env: entweder als MYSQL_CONNECTION_STRING (identisches Format wie das
-# mysql_connection_string in der FiveM server.cfg) oder als einzelne MYSQL_*-Vars.
-#
-# Ist keine/keine erreichbare DB konfiguriert, fällt der Bot automatisch auf die
-# alten JSON-Dateien zurück (Degraded-Modus) – er bleibt also immer startfähig.
-# Fest hinterlegte DB-Verbindung (gleiche DB wie der FiveM-Server). Bewusst direkt
-# im Code, damit der Bot ohne .env/Konsole (Pterodactyl) sofort läuft. Eine .env mit
-# MYSQL_CONNECTION_STRING oder MYSQL_*-Variablen hat – falls vorhanden – Vorrang.
+# Die Verbindung selbst kann NICHT in der DB liegen (Henne-Ei), darum steht sie
+# fest im Code (gleiche DB wie der FiveM-Server) – bewusst so, damit der Bot ohne
+# .env/Konsole (Pterodactyl) sofort läuft. Eine .env mit MYSQL_CONNECTION_STRING
+# oder MYSQL_*-Variablen hat – falls vorhanden – Vorrang.
 # ACHTUNG: enthält das DB-Passwort im Klartext. Wer dieses Repo sehen kann, sieht es.
+# Ist die DB nicht erreichbar, BEENDET sich der Bot mit klarer Meldung (kein Fallback).
 HARDCODED_DB_CONNECTION_STRING = "mysql://u44557_etCbfVyAVd:lqmh6ORO!dC+2MzXeG=.BEue@de13.spaceify.eu/s44557_mysql?charset=utf8mb4"
 
 DB_TABLE_PREFIX = "raze_panel_"
-DB_CONF = None     # dict mit Verbindungsdaten, oder None
-USE_DB = False     # True, sobald die DB-Verbindung + Tabellen stehen
+DB_CONF = None     # dict mit Verbindungsdaten, wird in init_database() gesetzt
 
 def _parse_db_conf():
     """Liest die DB-Verbindung aus der Umgebung. Bevorzugt MYSQL_CONNECTION_STRING
@@ -195,23 +189,24 @@ def _db_init_schema():
         conn.close()
 
 def init_database():
-    """Beim Start aufrufen: Verbindung prüfen + Tabellen anlegen. Setzt USE_DB."""
-    global USE_DB, DB_CONF
+    """Beim Start aufrufen: Verbindung prüfen + Tabellen anlegen.
+    Die DB ist Pflicht – schlägt etwas fehl, beendet sich der Bot mit klarer Meldung
+    (es gibt bewusst KEINEN JSON-Datei-Fallback mehr)."""
+    global DB_CONF
+    if pymysql is None:
+        sys.exit("[DB] FATAL: MySQL-Treiber 'pymysql' nicht verfügbar (Auto-Install fehlgeschlagen). "
+                 "Der Bot kann ohne Datenbank nicht starten.")
     DB_CONF = _parse_db_conf()
     if not DB_CONF:
-        print("[DB] Keine MySQL-Konfiguration gefunden (.env) – nutze JSON-Dateien.")
-        return
-    if pymysql is None:
-        print("[DB] pymysql nicht installiert ('pip install pymysql') – nutze JSON-Dateien.")
-        return
+        sys.exit("[DB] FATAL: Keine MySQL-Verbindung konfiguriert. "
+                 "Der Bot kann ohne Datenbank nicht starten.")
     try:
         _db_init_schema()
-        USE_DB = True
-        print(f"[DB] Verbunden mit {DB_CONF['host']}/{DB_CONF['database']} – "
-              f"Panel-Daten liegen in den {DB_TABLE_PREFIX}* Tabellen.")
     except Exception as e:
-        USE_DB = False
-        print(f"[DB] Verbindung fehlgeschlagen ({e}) – nutze JSON-Dateien (Degraded).")
+        sys.exit(f"[DB] FATAL: Datenbank nicht erreichbar ({e}). "
+                 "Der Bot kann ohne Datenbank nicht starten.")
+    print(f"[DB] Verbunden mit {DB_CONF['host']}/{DB_CONF['database']} – "
+          f"Panel-Daten kommen ausschließlich aus den {DB_TABLE_PREFIX}* Tabellen.")
 
 # --- Typisierte DB-Helfer (bauen auf _db_query/_db_replace_all auf) ---
 def _db_load_kv(table):
@@ -262,19 +257,6 @@ def _db_save_bans(bans):
             for b in bans]
     _db_replace_all(DB_TABLE_PREFIX + "bans",
                     ["id", "identifiers", "name", "reason", "banned_by", "created", "expires"], rows)
-
-def _backup_legacy_file(path):
-    """Verschiebt eine erfolgreich in die DB übernommene JSON-Datei auf *.migrated.bak,
-    damit sie nicht erneut migriert wird und als einmaliges Backup erhalten bleibt."""
-    try:
-        if os.path.exists(path):
-            bak = path + ".migrated.bak"
-            if os.path.exists(bak):
-                os.remove(bak)
-            os.replace(path, bak)
-            print(f"[DB] {os.path.basename(path)} -> {os.path.basename(bak)} verschoben (Backup).")
-    except Exception as e:
-        print(f"[DB] Backup von {os.path.basename(path)} fehlgeschlagen: {e}")
 
 # DB-Verbindung jetzt aufbauen, BEVOR weiter unten die Configs geladen werden.
 init_database()
@@ -368,38 +350,21 @@ def normalize_config_types():
 def load_config():
     global CONFIG
     try:
-        migrated = False
-        if USE_DB:
-            CONFIG = _db_load_kv(DB_TABLE_PREFIX + "config")
-            # Erststart: vorhandene config.json einmalig in die DB übernehmen.
-            if not CONFIG and os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    CONFIG = json.load(f)
-                migrated = True
-                print("[DB] config.json wird einmalig in die Datenbank übernommen.")
-        else:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                CONFIG = json.load(f)
+        CONFIG = _db_load_kv(DB_TABLE_PREFIX + "config")
 
         normalize_config_types()
 
-        # Token automatisch verschlüsseln, falls er noch im Klartext vorliegt
+        # Token automatisch verschlüsseln, falls er noch im Klartext in der DB liegt
         token = CONFIG.get("TOKEN")
         if token and not is_token_encrypted(token):
             try:
                 CONFIG["TOKEN"] = encrypt_token(token)
-                migrated = True
+                save_config()
                 print("Bot-Token war im Klartext und wurde verschlüsselt gespeichert.")
             except Exception as e:
                 print(f"Konnte Token nicht verschlüsseln: {e}")
 
-        # Migration/Token-Änderung persistieren und die alte Datei sichern.
-        if migrated:
-            save_config()
-            if USE_DB:
-                _backup_legacy_file(CONFIG_FILE)
-
-        print("Konfiguration (Discord) erfolgreich geladen.")
+        print("Konfiguration (Discord) aus der Datenbank geladen.")
     except Exception as e:
         print(f"Fehler beim Laden der Discord-Konfiguration: {e}")
 
@@ -427,26 +392,12 @@ def load_fivem_config():
             "FIVEM_WHITELIST": [],
             "FIVEM_BANLIST": []
         }
-        if USE_DB:
-            FIVEM_CONFIG = _db_load_kv(DB_TABLE_PREFIX + "fivem_config")
-            if not FIVEM_CONFIG:
-                # Erststart: vorhandene Datei übernehmen, sonst Defaults anlegen.
-                if os.path.exists(FIVEM_CONFIG_FILE):
-                    with open(FIVEM_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                        FIVEM_CONFIG = json.load(f)
-                    print("[DB] fivem_config.json wird einmalig in die Datenbank übernommen.")
-                else:
-                    FIVEM_CONFIG = dict(DEFAULTS)
-                migrated = True
-        else:
-            if not os.path.exists(FIVEM_CONFIG_FILE):
-                FIVEM_CONFIG = dict(DEFAULTS)
-                migrated = True
-            else:
-                with open(FIVEM_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    FIVEM_CONFIG = json.load(f)
+        FIVEM_CONFIG = _db_load_kv(DB_TABLE_PREFIX + "fivem_config")
+        # Tabelle leer (Erstinstallation) -> Defaults anlegen.
+        if not FIVEM_CONFIG:
+            FIVEM_CONFIG = dict(DEFAULTS)
+            migrated = True
 
-        # Migrationen (gelten unabhängig von der Quelle)
         # Fehlende Kick-Nachricht ergänzen
         if "FIVEM_KICK_MESSAGE" not in FIVEM_CONFIG:
             FIVEM_CONFIG["FIVEM_KICK_MESSAGE"] = DEFAULT_KICK_MESSAGE
@@ -459,9 +410,7 @@ def load_fivem_config():
 
         if migrated:
             save_fivem_config()
-            if USE_DB:
-                _backup_legacy_file(FIVEM_CONFIG_FILE)
-        print("FiveM-Konfiguration erfolgreich geladen.")
+        print("FiveM-Konfiguration aus der Datenbank geladen.")
     except Exception as e:
         print(f"Fehler beim Laden der FiveM-Konfiguration: {e}")
 
@@ -473,41 +422,21 @@ def save_config():
     if "ROLE_SYNC_MAPPING" in config_to_save:
         config_to_save["ROLE_SYNC_MAPPING"] = {str(k): v for k, v in config_to_save["ROLE_SYNC_MAPPING"].items()}
 
-    if USE_DB:
-        try:
-            _db_save_kv(DB_TABLE_PREFIX + "config", config_to_save)
-            print("Discord-Konfiguration gespeichert (DB).")
-            return
-        except Exception as e:
-            print(f"[DB] Speichern der Discord-Konfiguration fehlgeschlagen, nutze Datei: {e}")
-
     try:
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(config_to_save, f, indent=4, ensure_ascii=False)
-        print("Discord-Konfiguration gespeichert.")
+        _db_save_kv(DB_TABLE_PREFIX + "config", config_to_save)
+        print("Discord-Konfiguration gespeichert (DB).")
     except Exception as e:
         print(f"Fehler beim Speichern der Discord-Konfiguration: {e}")
 
 def save_fivem_config():
-    if USE_DB:
-        try:
-            _db_save_kv(DB_TABLE_PREFIX + "fivem_config", FIVEM_CONFIG)
-            print("FiveM-Konfiguration gespeichert (DB).")
-            return
-        except Exception as e:
-            print(f"[DB] Speichern der FiveM-Konfiguration fehlgeschlagen, nutze Datei: {e}")
-
     try:
-        with open(FIVEM_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(FIVEM_CONFIG, f, indent=4, ensure_ascii=False)
-        print("FiveM-Konfiguration gespeichert.")
+        _db_save_kv(DB_TABLE_PREFIX + "fivem_config", FIVEM_CONFIG)
+        print("FiveM-Konfiguration gespeichert (DB).")
     except Exception as e:
         print(f"Fehler beim Speichern der FiveM-Konfiguration: {e}")
 
 # --- BANN-SYSTEM ---
-# Strukturierte Bans (Grund + Ablaufzeit) liegen in einer SEPARATEN Datei, damit
-# das Auto-Save der FiveM-Config sie nicht überschreibt.
-BANS_FILE = os.path.join(BASE_DIR, 'fivem_bans.json')
+# Strukturierte Bans (Grund + Ablaufzeit) liegen in der Tabelle raze_panel_bans.
 FIVEM_BANS = []
 # Identifier-Typen, über die gebannt wird (stabil; IP wird bewusst ausgelassen)
 BAN_IDENTIFIER_PREFIXES = ("license:", "license2:", "steam:", "discord:", "xbl:", "live:", "fivem:")
@@ -515,38 +444,15 @@ BAN_IDENTIFIER_PREFIXES = ("license:", "license2:", "steam:", "discord:", "xbl:"
 def load_bans():
     global FIVEM_BANS
     try:
-        if USE_DB:
-            FIVEM_BANS = _db_load_bans()
-            # Erststart: vorhandene fivem_bans.json einmalig in die DB übernehmen.
-            if not FIVEM_BANS and os.path.exists(BANS_FILE):
-                with open(BANS_FILE, 'r', encoding='utf-8') as f:
-                    loaded = json.load(f)
-                if isinstance(loaded, list) and loaded:
-                    FIVEM_BANS = loaded
-                    print(f"[DB] fivem_bans.json wird einmalig in die Datenbank übernommen ({len(FIVEM_BANS)}).")
-                    save_bans()
-                    _backup_legacy_file(BANS_FILE)
-            print(f"[Bans] {len(FIVEM_BANS)} Bans geladen (DB).")
-        elif os.path.exists(BANS_FILE):
-            with open(BANS_FILE, 'r', encoding='utf-8') as f:
-                FIVEM_BANS = json.load(f)
-            if not isinstance(FIVEM_BANS, list):
-                FIVEM_BANS = []
-            print(f"[Bans] {len(FIVEM_BANS)} aktive Bans geladen.")
+        FIVEM_BANS = _db_load_bans()
+        print(f"[Bans] {len(FIVEM_BANS)} Bans aus der Datenbank geladen.")
     except Exception as e:
         print(f"[Bans] Fehler beim Laden: {e}")
         FIVEM_BANS = []
 
 def save_bans():
-    if USE_DB:
-        try:
-            _db_save_bans(FIVEM_BANS)
-            return
-        except Exception as e:
-            print(f"[DB] Speichern der Bans fehlgeschlagen, nutze Datei: {e}")
     try:
-        with open(BANS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(FIVEM_BANS, f, indent=4, ensure_ascii=False)
+        _db_save_bans(FIVEM_BANS)
     except Exception as e:
         print(f"[Bans] Fehler beim Speichern: {e}")
 
@@ -620,7 +526,6 @@ load_fivem_config()
 load_bans()
 
 # --- ADMIN SYSTEM ---
-ADMIN_CONFIG_FILE = os.path.join(BASE_DIR, 'admin_config.json')
 ADMIN_CONFIG = {}
 SESSIONS = {}
 SESSION_TTL = 24 * 3600  # Sessions laufen nach 24h ab
@@ -649,33 +554,14 @@ def has_permission(username, *perms):
 def load_admin_config():
     global ADMIN_CONFIG
     try:
-        from_file = False
-        if USE_DB:
-            ADMIN_CONFIG = _db_load_admins()
-            if not ADMIN_CONFIG:
-                # Erststart: vorhandene admin_config.json übernehmen, sonst Default-Admin.
-                if os.path.exists(ADMIN_CONFIG_FILE):
-                    with open(ADMIN_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                        ADMIN_CONFIG = json.load(f)
-                    from_file = True
-                    print("[DB] admin_config.json wird einmalig in die Datenbank übernommen.")
-                else:
-                    ADMIN_CONFIG = {"Batlax": {"password": "12107tIm___", "permissions": ["all"]}}
-                save_admin_config()
-        elif not os.path.exists(ADMIN_CONFIG_FILE):
-             ADMIN_CONFIG = {
-                 "Batlax": {
-                     "password": "12107tIm___",
-                     "permissions": ["all"]
-                 }
-             }
-             save_admin_config()
-        else:
-            with open(ADMIN_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                ADMIN_CONFIG = json.load(f)
+        ADMIN_CONFIG = _db_load_admins()
+        changed = False
+        # Tabelle leer (Erstinstallation) -> Default-Admin anlegen.
+        if not ADMIN_CONFIG:
+            ADMIN_CONFIG = {"Batlax": {"password": "12107tIm___", "permissions": ["all"]}}
+            changed = True
 
         # Klartext-Passwörter zu gesalzenen Hashes migrieren
-        changed = False
         for user_data in ADMIN_CONFIG.values():
             pw = user_data.get("password", "")
             if pw and not pw.startswith("sha256$"):
@@ -694,26 +580,14 @@ def load_admin_config():
 
         if changed:
             save_admin_config()
-            print("Admin-Konfiguration migriert (Passwörter/Berechtigungen).")
 
-        # Alte Datei nach erfolgreicher Übernahme in die DB sichern.
-        if USE_DB and from_file:
-            _backup_legacy_file(ADMIN_CONFIG_FILE)
-
-        print("Admin-Konfiguration geladen.")
+        print("Admin-Konfiguration aus der Datenbank geladen.")
     except Exception as e:
         print(f"Fehler Admin-Config: {e}")
 
 def save_admin_config():
-    if USE_DB:
-        try:
-            _db_save_admins(ADMIN_CONFIG)
-            return
-        except Exception as e:
-            print(f"[DB] Speichern der Admin-Konfiguration fehlgeschlagen, nutze Datei: {e}")
     try:
-        with open(ADMIN_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(ADMIN_CONFIG, f, indent=4, ensure_ascii=False)
+        _db_save_admins(ADMIN_CONFIG)
     except Exception as e:
         print(f"Fehler Speichern Admin-Config: {e}")
 
@@ -1856,8 +1730,13 @@ async def start_web_server():
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # Port from Config or default 25015
-    port = CONFIG.get("WEB_PORT", 25015)
+    # Port aus der Config – robust gegen fehlende/None/leere Werte, sonst würde
+    # aiohttp auf "Port None" binden (Panel nicht erreichbar).
+    port = CONFIG.get("WEB_PORT") or 25015
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        port = 25015
     site = web.TCPSite(runner, '0.0.0.0', port)
     
     try:
