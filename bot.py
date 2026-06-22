@@ -1866,9 +1866,9 @@ async def start_web_server():
             print(resource)
         print("-------------------------")
         await site.start()
-        print(f"Web Server läuft auf http://0.0.0.0:25015")
+        print(f"Web Server läuft auf http://0.0.0.0:{port}")
     except OSError as e:
-        print(f"FEHLER: Konnte Webserver auf Port 25015 nicht starten: {e}")
+        print(f"FEHLER: Konnte Webserver auf Port {port} nicht starten: {e}")
         print("Möglicherweise ist der Port belegt oder du hast keine Berechtigung.")
 
 def run_web_server_only():
