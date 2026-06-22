@@ -745,7 +745,7 @@ def deserialize_config(data):
         # We only convert if it's all digits and "large enough" or strictly an ID field context
         # But for generic config, simpler: if it parses as int and was likely an ID, convert?
         # Better strategy: Try parse int, if it round-trips to same string, keep as int?
-        # No, "WEB_PORT" is int 8080. JS sends 8080 as number.
+        # No, "WEB_PORT" is int 25015. JS sends 25015 as number.
         # IDs sent as strings "123".
         if data.isdigit():
              # Heuristic: Discord IDs are usually len 17-19
@@ -1856,8 +1856,8 @@ async def start_web_server():
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # Port from Config or default 8080
-    port = CONFIG.get("WEB_PORT", 8080)
+    # Port from Config or default 25015
+    port = CONFIG.get("WEB_PORT", 25015)
     site = web.TCPSite(runner, '0.0.0.0', port)
     
     try:
