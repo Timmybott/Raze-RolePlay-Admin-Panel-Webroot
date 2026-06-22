@@ -15,12 +15,42 @@ from aiohttp import web
 import uuid
 from urllib.parse import urlparse, parse_qs
 
-# MySQL-Treiber optional importieren – fehlt er, läuft der Bot weiter mit JSON-Dateien.
-try:
-    import pymysql
-    import pymysql.cursors
-except Exception:
-    pymysql = None
+# MySQL-Treiber laden. Auf Pterodactyl gibt es oft KEINE Konsole für 'pip install',
+# darum installiert sich pymysql bei Bedarf automatisch (einmalig beim Start). Klappt
+# das nicht, läuft der Bot weiter mit JSON-Dateien (Degraded) statt abzustürzen.
+def _import_pymysql():
+    try:
+        import pymysql
+        import pymysql.cursors  # noqa: F401
+        return pymysql
+    except Exception:
+        return None
+
+pymysql = _import_pymysql()
+if pymysql is None:
+    import subprocess
+    print("[DB] pymysql nicht gefunden – versuche automatische Installation (pip) ...")
+    for pip_args in (["pymysql"], ["--user", "pymysql"]):
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                   "--disable-pip-version-check"] + pip_args)
+        except Exception as e:
+            print(f"[DB] pip install {' '.join(pip_args)} fehlgeschlagen: {e}")
+            continue
+        # Frisch installierte (ggf. --user) Pfade in den laufenden Prozess holen,
+        # damit der Import OHNE zweiten Neustart funktioniert.
+        try:
+            import site, importlib
+            site.main()
+            importlib.invalidate_caches()
+        except Exception:
+            pass
+        pymysql = _import_pymysql()
+        if pymysql:
+            print("[DB] pymysql erfolgreich installiert.")
+            break
+    if pymysql is None:
+        print("[DB] pymysql konnte nicht installiert werden – nutze JSON-Dateien (Degraded).")
 
 # --- CONFIGURATION LOADING ---
 # Load config relative to this script file to avoid CWD issues
@@ -48,6 +78,12 @@ except Exception:
 #
 # Ist keine/keine erreichbare DB konfiguriert, fällt der Bot automatisch auf die
 # alten JSON-Dateien zurück (Degraded-Modus) – er bleibt also immer startfähig.
+# Fest hinterlegte DB-Verbindung (gleiche DB wie der FiveM-Server). Bewusst direkt
+# im Code, damit der Bot ohne .env/Konsole (Pterodactyl) sofort läuft. Eine .env mit
+# MYSQL_CONNECTION_STRING oder MYSQL_*-Variablen hat – falls vorhanden – Vorrang.
+# ACHTUNG: enthält das DB-Passwort im Klartext. Wer dieses Repo sehen kann, sieht es.
+HARDCODED_DB_CONNECTION_STRING = "mysql://u44557_etCbfVyAVd:lqmh6ORO!dC+2MzXeG=.BEue@de13.spaceify.eu/s44557_mysql?charset=utf8mb4"
+
 DB_TABLE_PREFIX = "raze_panel_"
 DB_CONF = None     # dict mit Verbindungsdaten, oder None
 USE_DB = False     # True, sobald die DB-Verbindung + Tabellen stehen
@@ -55,7 +91,9 @@ USE_DB = False     # True, sobald die DB-Verbindung + Tabellen stehen
 def _parse_db_conf():
     """Liest die DB-Verbindung aus der Umgebung. Bevorzugt MYSQL_CONNECTION_STRING
     (Format: mysql://user:pass@host[:port]/dbname?charset=utf8mb4), sonst MYSQL_*."""
-    conn_str = os.environ.get("MYSQL_CONNECTION_STRING") or os.environ.get("mysql_connection_string")
+    conn_str = (os.environ.get("MYSQL_CONNECTION_STRING")
+                or os.environ.get("mysql_connection_string")
+                or HARDCODED_DB_CONNECTION_STRING)
     if conn_str:
         try:
             u = urlparse(conn_str.strip())
